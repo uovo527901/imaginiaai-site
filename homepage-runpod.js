@@ -1,7 +1,6 @@
 // ============================================================
-// homepage-runpod.js - v2
-// 버튼을 안 찾아. 비디오가 생기면 자동으로 RunPod 시작해.
-// 디자인은 안 건드려.
+// homepage-runpod.js - v3
+// blob: 사진도 찾게 했어. RunPod가 시작되면 화면에 표시해.
 // ============================================================
 
 (function () {
@@ -9,6 +8,18 @@
   var alreadyStarted = false;
   var lastImage = "";
   var lastPrompt = "";
+
+  function showMsg(msg) {
+    var el = document.getElementById("runpod-msg");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "runpod-msg";
+      el.style.cssText = "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#7c3aed;color:#fff;padding:12px 20px;border-radius:999px;font-size:15px;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.3);";
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.display = "block";
+  }
 
   // ------------------------------------------------------------
   // 1. 사진을 512px로 작게 만들기
@@ -35,10 +46,29 @@
   }
 
   // ------------------------------------------------------------
-  // 2. RunPod로 진짜 영상 만들기
+  // 2. blob: 주소를 data: 주소로 바꾸기
+  // ------------------------------------------------------------
+  function blobToDataUrl(blobUrl, callback) {
+    fetch(blobUrl).then(function (r) {
+      return r.blob();
+    }).then(function (blob) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        callback(reader.result);
+      };
+      reader.readAsDataURL(blob);
+    }).catch(function () {
+      callback(null);
+    });
+  }
+
+  // ------------------------------------------------------------
+  // 3. RunPod로 진짜 영상 만들기
   // ------------------------------------------------------------
   async function generateWithRunPod(imageBase64, promptText, videoEl) {
     try {
+      showMsg("RunPod 시작됨! 뒤에서 진짜 영상 만드는 중...");
+
       var res = await fetch("/actions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -55,8 +85,12 @@
       var data = await res.json();
       var id = data.data && data.data.id;
       if (!id) {
+        showMsg("RunPod 시작 실패. 가짜 영상은 계속 보여줄게.");
+        alreadyStarted = false;
         return;
       }
+
+      showMsg("RunPod 시작됨! id: " + id.slice(0, 8) + "... 7-8분 기다려");
 
       for (var i = 0; i < 60; i++) {
         await new Promise(function (r) {
@@ -75,6 +109,8 @@
         var sd = await s.json();
         var status = sd.data && sd.data.status;
 
+        showMsg("진짜 영상 만드는 중... " + (i + 1) + "/60 - " + status);
+
         if (status === "COMPLETED") {
           var out = sd.data && sd.data.output;
           var url = null;
@@ -92,43 +128,30 @@
             videoEl.play();
           }
 
+          showMsg("진짜 영상 완성! .mp4로 바뀌었어!");
           alreadyStarted = false;
           return;
         }
 
         if (status === "FAILED") {
+          showMsg("진짜 영상 만들기 실패. 가짜 영상은 계속 보여줄게.");
           alreadyStarted = false;
           return;
         }
       }
 
+      showMsg("10분이 지나도 안 끝났어. 뒤에서 계속 만들고 있어.");
       alreadyStarted = false;
 
     } catch (e) {
+      showMsg("에러: " + e.message);
       alreadyStarted = false;
     }
   }
 
   // ------------------------------------------------------------
-  // 3. 지금 페이지에서 사진 + 프롬프트 찾기
+  // 4. 지금 페이지에서 사진 + 프롬프트 찾기
   // ------------------------------------------------------------
-  function findCurrentImage() {
-    var imgs = document.querySelectorAll("img");
-    for (var i = 0; i < imgs.length; i++) {
-      var src = imgs[i].src || "";
-      if (src.indexOf("data:") === 0 && src.length > 1000) {
-        return src;
-      }
-    }
-    var fileInputs = document.querySelectorAll('input[type="file"]');
-    for (var j = 0; j < fileInputs.length; j++) {
-      if (fileInputs[j].files && fileInputs[j].files[0]) {
-        return fileInputs[j].files[0];
-      }
-    }
-    return null;
-  }
-
   function findCurrentPrompt() {
     var ta = document.querySelector("textarea");
     if (ta && ta.value) {
@@ -158,9 +181,34 @@
     return p;
   }
 
+  function findImageSrc() {
+    // 1. data: 이미지 먼저 찾기
+    var imgs = document.querySelectorAll("img");
+    for (var i = 0; i < imgs.length; i++) {
+      var src = imgs[i].src || "";
+      if (src.indexOf("data:") === 0 && src.length > 1000) {
+        return { type: "data", value: src };
+      }
+    }
+    // 2. blob: 이미지 찾기 (홈페이지 왼쪽 사진이 이거야)
+    for (var j = 0; j < imgs.length; j++) {
+      var s2 = imgs[j].src || "";
+      if (s2.indexOf("blob:") === 0) {
+        return { type: "blob", value: s2 };
+      }
+    }
+    // 3. 파일 입력 찾기
+    var fileInputs = document.querySelectorAll('input[type="file"]');
+    for (var k = 0; k < fileInputs.length; k++) {
+      if (fileInputs[k].files && fileInputs[k].files[0]) {
+        return { type: "file", value: fileInputs[k].files[0] };
+      }
+    }
+    return null;
+  }
+
   // ------------------------------------------------------------
-  // 4. 비디오가 생기면, 자동으로 RunPod 시작하기
-  //    - 버튼을 안 찾아. 비디오를 봐.
+  // 5. 비디오가 생기면, 자동으로 RunPod 시작하기
   // ------------------------------------------------------------
   function tryStart(videoEl) {
     if (alreadyStarted) {
@@ -170,15 +218,15 @@
       return;
     }
 
-    var imgOrFile = findCurrentImage();
-    if (!imgOrFile) {
+    var found = findImageSrc();
+    if (!found) {
       return;
     }
 
     var promptText = makePromptSafe(findCurrentPrompt());
 
-    // 이미지가 파일이면, 먼저 읽기
-    if (typeof imgOrFile !== "string") {
+    // 파일이면, 먼저 읽기
+    if (found.type === "file") {
       var reader = new FileReader();
       reader.onload = function () {
         var dataUrl = reader.result;
@@ -192,28 +240,46 @@
           generateWithRunPod(small, promptText, videoEl);
         });
       };
-      reader.readAsDataURL(imgOrFile);
+      reader.readAsDataURL(found.value);
       return;
     }
 
-    // 이미지가 data URL이면, 바로 시작
-    if (imgOrFile === lastImage && promptText === lastPrompt) {
+    // blob이면, data로 바꾸기
+    if (found.type === "blob") {
+      blobToDataUrl(found.value, function (dataUrl) {
+        if (!dataUrl) {
+          return;
+        }
+        if (dataUrl === lastImage && promptText === lastPrompt) {
+          return;
+        }
+        lastImage = dataUrl;
+        lastPrompt = promptText;
+        alreadyStarted = true;
+        compressImage(dataUrl, function (small) {
+          generateWithRunPod(small, promptText, videoEl);
+        });
+      });
       return;
     }
-    lastImage = imgOrFile;
+
+    // data면, 바로 시작
+    if (found.value === lastImage && promptText === lastPrompt) {
+      return;
+    }
+    lastImage = found.value;
     lastPrompt = promptText;
     alreadyStarted = true;
-    compressImage(imgOrFile, function (small) {
+    compressImage(found.value, function (small) {
       generateWithRunPod(small, promptText, videoEl);
     });
   }
 
   // ------------------------------------------------------------
-  // 5. 페이지가 다 로딩되면, 비디오를 감시하기
+  // 6. 페이지가 다 로딩되면, 비디오를 감시하기
   // ------------------------------------------------------------
   window.addEventListener("load", function () {
 
-    // 5-1. 페이지 안에 있는 모든 클릭을 듣기
     document.addEventListener("click", function () {
       setTimeout(function () {
         var v = document.querySelector("video");
@@ -223,7 +289,6 @@
       }, 1000);
     });
 
-    // 5-2. 비디오가 새로 생기면, 자동으로 시작하기
     var observer = new MutationObserver(function () {
       var v = document.querySelector("video");
       if (v) {
@@ -237,7 +302,6 @@
       attributes: true
     });
 
-    // 5-3. 이미 비디오가 있으면, 바로 시작하기
     setTimeout(function () {
       var v = document.querySelector("video");
       if (v) {
