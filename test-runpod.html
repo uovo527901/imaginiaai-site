@@ -7,8 +7,6 @@ exports.handler = async (event) => {
     const crypto = require("crypto");
     const apiKey = process.env.RUNPOD_API_KEY || "";
     const endpointId = process.env.RUNPOD_ENDPOINT_ID || "";
-
-    // RunPod 시작하기 - 빨리 돌아와
     if (action === "runpod.generate") {
       if (!apiKey || !endpointId) return { statusCode: 200, body: JSON.stringify({ data: { ok: false, reason: "no-key" } }) };
       const res = await fetch(`https://api.runpod.ai/v2/${endpointId}/run`, {
@@ -19,8 +17,6 @@ exports.handler = async (event) => {
       const data = await res.json().catch(() => ({}));
       return { statusCode: 200, body: JSON.stringify({ data: { ok: true, id: data.id, status: data.status } }) };
     }
-
-    // RunPod 상태 확인하기
     if (action === "runpod.status") {
       if (!apiKey || !endpointId) return { statusCode: 200, body: JSON.stringify({ data: { ok: false } }) };
       const jobId = args.id || args.jobId || "";
@@ -28,7 +24,6 @@ exports.handler = async (event) => {
       const data = await res.json().catch(() => ({}));
       return { statusCode: 200, body: JSON.stringify({ data: { ok: true, status: data.status, output: data.output } }) };
     }
-
     if (action.includes("admin")) {
       const hash = process.env.ADMIN_PASSWORD_HASH || "";
       const pw = args.password || args.newPassword || body.password || "";
