@@ -1,33 +1,34 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RunPod 테스트</title>
-<style>body{font-family:system-ui;padding:20px;max-width:640px;margin:auto}input,textarea,button{width:100%;padding:12px;margin:8px 0;font-size:16px}img,video{max-width:100%;margin-top:12px}</style>
+<style>body{font-family:system-ui;padding:20px;max-width:640px;margin:auto}input,textarea,button{width:100%;padding:12px;margin:8px 0;font-size:16px}img,video{max-width:100%;margin-top:12px}#btn{background:#7c3aed;color:#fff;border:0;border-radius:8px;cursor:pointer}</style>
 </head><body>
 <h2>RunPod 사진 → 영상 테스트</h2>
 <input type="file" id="file" accept="image/*">
 <img id="preview" style="display:none">
 <textarea id="prompt" rows="3">same girl, same face, same clothes, keep identity, do not change face, smiling and waving gently, water slide</textarea>
 <button id="btn">RunPod로 영상 만들기</button>
-<p id="status"></p>
+<p id="status">버튼을 누르면 여기에 결과가 나와</p>
 <video id="video" controls style="display:none"></video>
 <script>
-let imgBase64 = "";
-document.getElementById("file").addEventListener("change", e => {
-  const f = e.target.files[0]; if(!f) return;
-  const r = new FileReader();
-  r.onload = () => { imgBase64 = r.result; const p=document.getElementById("preview"); p.src=imgBase64; p.style.display="block"; };
+var imgBase64 = "";
+document.getElementById("file").addEventListener("change", function(e){
+  var f = e.target.files[0]; if(!f) return;
+  document.getElementById("status").textContent = "사진 읽는 중...";
+  var r = new FileReader();
+  r.onload = function(){ imgBase64 = r.result; var p=document.getElementById("preview"); p.src=imgBase64; p.style.display="block"; document.getElementById("status").textContent = "사진 준비됨. 버튼을 눌러줘"; };
   r.readAsDataURL(f);
 });
-document.getElementById("btn").onclick = async () => {
-  const st = document.getElementById("status");
-  if(!imgBase64){ st.textContent="사진을 먼저 올려줘"; return; }
+document.getElementById("btn").onclick = async function(){
+  var st = document.getElementById("status");
+  st.textContent = "버튼 눌림! 확인 중...";
+  if(!imgBase64){ st.textContent="사진을 먼저 올려줘. 파일 선택하고 미리보기가 뜰 때까지 기다려"; return; }
   st.textContent = "RunPod에 보내는 중... 1-3분 걸려. 끄지 말고 기다려";
   try {
-    const res = await fetch("/actions", { method:"POST", headers:{"Content-Type":"application/json"}, body: action: "runpod.generate", args: { prompt: document.getElementById("prompt").value, image: imgBase64, seconds: 5 }) });
-    const data = await res.json();
-    st.textContent = "결과: " + JSON.stringify(data).slice(0, 1000);
-    const out = data.result?.output || data.result?.output?.video || data.result?.video;
-    if(out){ const v=document.getElementById("video"); v.src=out; v.style.display="block"; }
+    var res = await fetch("/actions", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ action: "runpod.generate", args: { prompt: document.getElementById("prompt").value, image: imgBase64, seconds: 5 } }) });
+    var txt = await res.text();
+    st.textContent = "결과: " + txt.slice(0, 1000);
+    try { var data = JSON.parse(txt); var out = data.data && data.data.result && (data.data.result.output || data.data.result.video); if(out){ var v=document.getElementById("video"); v.src=out; v.style.display="block"; } } catch(e){}
   } catch(e){ st.textContent = "에러: " + e.message; }
 };
 </script></body></html>
