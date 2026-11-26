@@ -5,6 +5,18 @@ exports.handler = async (event) => {
     const action = body.action || "";
     const args = body.args || {};
     const crypto = require("crypto");
+    if (action === "runpod.generate" || action === "runpod-generate" || action === "generate") {
+      const apiKey = process.env.RUNPOD_API_KEY || "";
+      const endpointId = process.env.RUNPOD_ENDPOINT_ID || "";
+      if (!apiKey || !endpointId) return { statusCode: 200, body: JSON.stringify({ data: { ok: false, reason: "no-key" } }) };
+      const res = await fetch(`https://api.runpod.ai/v2/${endpointId}/runsync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+        body: JSON.stringify({ input: { prompt: args.prompt || "a person smiling, looking at camera", image: args.image || undefined, size: args.size || "1280x704", seconds: args.seconds || 5, fps: args.fps || 24 } }),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { statusCode: 200, body: JSON.stringify({ data: { ok: true, result: data } }) };
+    }
     if (action.includes("admin")) {
       const hash = process.env.ADMIN_PASSWORD_HASH || "";
       const pw = args.password || args.newPassword || body.password || "";
