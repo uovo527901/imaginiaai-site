@@ -32,7 +32,7 @@ document.getElementById("btn").onclick = async function(){
   var id = start.data && start.data.id;
   if(!id){ st.textContent = "시작 실패: " + JSON.stringify(start).slice(0,500); return; }
   st.textContent = "시작됨! id: " + id + " — 10초마다 확인 중...";
-  for(var i=0;i<30;i++){
+  for(var i=0;i<60;i++){
     await new Promise(function(r){ setTimeout(r, 10000); });
     var s = await callAction("runpod.status", { id: id });
     var status = s.data && s.data.status;
