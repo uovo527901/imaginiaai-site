@@ -1,44 +1,53 @@
-exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
-  try {
-    const body = JSON.parse(event.body || "{}");
-    const action = body.action || "";
-    const args = body.args || {};
-    const crypto = require("crypto");
-    const apiKey = process.env.RUNPOD_API_KEY || "";
-    const endpointId = process.env.RUNPOD_ENDPOINT_ID || "";
-    if (action === "runpod.generate") {
-      if (!apiKey || !endpointId) return { statusCode: 200, body: JSON.stringify({ data: { ok: false, reason: "no-key" } }) };
-      const res = await fetch(`https://api.runpod.ai/v2/${endpointId}/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-        body: JSON.stringify({ input: { prompt: args.prompt || "a person smiling", image: args.image || undefined, size: args.size || "1280x704", seconds: args.seconds || 5, fps: args.fps || 24 } }),
-      });
-      const data = await res.json().catch(() => ({}));
-      return { statusCode: 200, body: JSON.stringify({ data: { ok: true, id: data.id, status: data.status } }) };
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RunPod 테스트</title>
+<style>body{font-family:system-ui;padding:20px;max-width:640px;margin:auto}input,textarea,button{width:100%;padding:12px;margin:8px 0;font-size:16px}img,video{max-width:100%;margin-top:12px}#btn{background:#7c3aed;color:#fff;border:0;border-radius:8px;cursor:pointer}</style>
+</head><body>
+<h2>RunPod 사진 → 영상 테스트</h2>
+<input type="file" id="file" accept="image/*">
+<img id="preview" style="display:none">
+<textarea id="prompt" rows="3">same girl, same face, same clothes, keep identity, do not change face, smiling and waving gently, water slide</textarea>
+<button id="btn">RunPod로 영상 만들기</button>
+<p id="status">버튼을 누르면 여기에 결과가 나와</p>
+<video id="video" controls style="display:none"></video>
+<script>
+var imgBase64 = "";
+document.getElementById("file").addEventListener("change", function(e){
+  var f = e.target.files[0]; if(!f) return;
+  document.getElementById("status").textContent = "사진 읽는 중...";
+  var r = new FileReader();
+  r.onload = function(){ imgBase64 = r.result; var p=document.getElementById("preview"); p.src=imgBase64; p.style.display="block"; document.getElementById("status").textContent = "사진 준비됨. 버튼을 눌러줘"; };
+  r.readAsDataURL(f);
+});
+async function callAction(action, args){
+  var res = await fetch("/actions", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ action: action, args: args }) });
+  var txt = await res.text();
+  try { return JSON.parse(txt); } catch(e){ return { raw: txt }; }
+}
+document.getElementById("btn").onclick = async function(){
+  var st = document.getElementById("status");
+  if(!imgBase64){ st.textContent="사진을 먼저 올려줘"; return; }
+  st.textContent = "RunPod에 일 시작하라고 보내는 중...";
+  var start = await callAction("runpod.generate", { prompt: document.getElementById("prompt").value, image: imgBase64, seconds: 5 });
+  var id = start.data && start.data.id;
+  if(!id){ st.textContent = "시작 실패: " + JSON.stringify(start).slice(0,500); return; }
+  st.textContent = "시작됨! id: " + id + " — 10초마다 확인 중...";
+  for(var i=0;i<30;i++){
+    await new Promise(function(r){ setTimeout(r, 10000); });
+    var s = await callAction("runpod.status", { id: id });
+    var status = s.data && s.data.status;
+    st.textContent = "확인 " + (i+1) + "회 — 상태: " + status;
+    if(status === "COMPLETED"){
+      var out = s.data.output;
+      var url = null;
+      if(typeof out === "string") url = out;
+      else if(out) url = out.video || out.url || out[0];
+      st.textContent = "완성! " + JSON.stringify(s.data).slice(0,1000);
+      if(url){ var v=document.getElementById("video"); v.src=url; v.style.display="block"; }
+      return;
     }
-    if (action === "runpod.status") {
-      if (!apiKey || !endpointId) return { statusCode: 200, body: JSON.stringify({ data: { ok: false } }) };
-      const jobId = args.id || args.jobId || "";
-      const res = await fetch(`https://api.runpod.ai/v2/${endpointId}/status/${jobId}`, { headers: { "Authorization": `Bearer ${apiKey}` } });
-      const data = await res.json().catch(() => ({}));
-      return { statusCode: 200, body: JSON.stringify({ data: { ok: true, status: data.status, output: data.output } }) };
-    }
-    if (action.includes("admin")) {
-      const hash = process.env.ADMIN_PASSWORD_HASH || "";
-      const pw = args.password || args.newPassword || body.password || "";
-      if (!hash) return { statusCode: 200, body: JSON.stringify({ data: { ok: false, needsSetup: true } }) };
-      if (!pw) return { statusCode: 200, body: JSON.stringify({ data: { ok: false } }) };
-      const inputHash = crypto.createHash("sha256").update(String(pw)).digest("hex");
-      if (inputHash === hash) return { statusCode: 200, body: JSON.stringify({ data: { ok: true, token: crypto.randomBytes(24).toString("hex") } }) };
-      return { statusCode: 200, body: JSON.stringify({ data: { ok: false } }) };
-    }
-    if (action.startsWith("records.")) {
-      if (action === "records.list") return { statusCode: 200, body: JSON.stringify({ data: { records: [] } }) };
-      return { statusCode: 200, body: JSON.stringify({ data: { id: "ok", records: [] } }) };
-    }
-    return { statusCode: 200, body: JSON.stringify({ data: {} }) };
-  } catch (e) {
-    return { statusCode: 500, body: JSON.stringify({ error: String(e) }) };
+    if(status === "FAILED"){ st.textContent = "실패: " + JSON.stringify(s.data).slice(0,1000); return; }
   }
+  st.textContent = "5분이 지나도 안 끝났어. RunPod에서 직접 확인해봐. id: " + id;
 };
+</script></body></html>
