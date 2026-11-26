@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RunPod 직접 테스트</title>
@@ -52,9 +53,12 @@ document.getElementById("btn").onclick = async function(){
     var sd = await s.json();
     st.textContent = "확인 " + (i+1) + "회 — 상태: " + sd.status;
     if(sd.status === "COMPLETED"){
-      var out = sd.output; var url = typeof out === "string" ? out : (out && (out.video || out.url || out[0]));
-      st.textContent = "완성! " + JSON.stringify(sd).slice(0,1000);
-      if(url){ var v=document.getElementById("video"); v.src=url; v.style.display="block"; }
+      var out = sd.output; var url = null;
+      if(typeof out === "string") url = out;
+      else if(out && out.data_b64) url = "data:" + (out.content_type || "video/mp4") + ";base64," + out.data_b64;
+      else if(out) url = out.video || out.url || out[0];
+      st.textContent = "완성! 영상 아래에 나와";
+      if(url){ var v=document.getElementById("video"); v.src=url; v.style.display="block"; v.play(); }
       return;
     }
     if(sd.status === "FAILED"){ st.textContent = "실패: " + JSON.stringify(sd).slice(0,1000); return; }
