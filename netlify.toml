@@ -4,3 +4,6 @@
   from = "/actions"
   to = "/.netlify/functions/actions"
   status = 200
+
+[functions.actions]
+  node_bundler = "esbuild"
