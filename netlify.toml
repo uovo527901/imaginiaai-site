@@ -1,6 +1,13 @@
 [build]
-  functions = "netlify/functions"
-  [[redirects]]
+  publish = "."
+
+[functions]
+  directory = "netlify/functions"
+
+[functions.actions]
+  node_bundler = "esbuild"
+
+[[redirects]]
   from = "/actions"
   to = "/.netlify/functions/actions"
   status = 200

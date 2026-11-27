@@ -45,21 +45,23 @@ async function checkAdmin() {
     return;
   }
   try {
-    const response = await fetch("/.netlify/functions/gallery", {
+    const response = await fetch("/.netlify/functions/actions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "unlock", password: input.value })
+      body: JSON.stringify({ action: "admin.login", args: { password: input.value } })
     });
-    if (response.status === 401) {
+    if (!response.headers.get("content-type")?.includes("application/json")) throw new Error();
+    const data = await response.json();
+    if (response.status === 401 && data?.ok === false) {
       message.textContent = "비밀번호가 틀렸어요.";
       return;
     }
-    if (!response.ok || !(await response.json()).ok) throw new Error("Login failed");
+    if (!response.ok || data?.ok !== true) throw new Error();
     input.value = "";
     message.textContent = "";
     await loadUsers();
   } catch {
-    message.textContent = "로그인에 실패했어요. 다시 해주세요.";
+    message.textContent = "서버에 연결이 안 돼요. Netlify Functions를 확인해 주세요.";
   }
 }
 
