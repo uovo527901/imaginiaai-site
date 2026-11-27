@@ -3122,20 +3122,33 @@ async function galleryRequest(action, values) {
   if (!response.ok) throw Error(data.error || `Request failed (${response.status})`);
   return data;
 }
+const adminConnectionError = "서버에 연결이 안 돼요. Netlify Functions를 확인해 주세요.";
+async function adminPasswordRequest(action, args) {
+  const response = await fetch("/.netlify/functions/actions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, args })
+  });
+  if (!response.headers.get("content-type")?.includes("application/json")) throw Error();
+  const data = await response.json();
+  if (response.status === 401 && data?.ok === false) return false;
+  if (!response.ok || data?.ok !== true) throw Error();
+  return true;
+}
 function v3(){F9(""),C9(""),k9(""),S9(""),pA(null),hz(null)}function g9(){galleryRequest("lock").catch(()=>{}),o9(!1),Qf(!1),xn(!1),zf(null),$f(null),Zn(null),f3(null),v3(),w7(v.adminOffNotice)}function D9(r){if(D){g9();return}nv(r),v3(),f3("login")}function cc(){D9(!1)}function dc(){if(D){document.getElementById("gallery")?.scrollIntoView({behavior:"smooth",block:"start"});return}D9(!0)}function U9(){if(o9(!0),f3(null),v3(),w7(v.adminOnNotice),Pc)nv(!1),window.setTimeout(()=>{document.getElementById("gallery")?.scrollIntoView({behavior:"smooth",block:"start"})},60)}
 async function $9(){
   if(!Nz){pA(S.checkMsg);return}
   rf(!0),pA(null);
-  try{if(!(await galleryRequest("unlock",{password:Nz})).ok){pA(S.wrongMsg);return}U9()}
-  catch(error){pA(`${S.saveFailed}${error instanceof Error?error.message:String(error)}`)}
+  try{if(!await adminPasswordRequest("admin.login",{password:Nz})){pA(S.wrongMsg);return}U9()}
+  catch{pA(adminConnectionError)}
   finally{rf(!1)}
 }
 async function Al(){
   if(!oz){pA(S.wrongMsg);return}
   if(!R3||R3!==Bz){pA(S.checkMsg);return}
   rf(!0),pA(null);
-  try{if(!(await galleryRequest("change-password",{password:oz,newPassword:R3})).ok){pA(S.wrongMsg);return}f3(null),v3(),w7(S.changedMsg)}
-  catch(error){pA(`${S.saveFailed}${error instanceof Error?error.message:String(error)}`)}
+  try{if(!await adminPasswordRequest("admin.set_password",{password:oz,newPassword:R3})){pA(S.wrongMsg);return}f3(null),v3(),w7(S.changedMsg)}
+  catch{pA(adminConnectionError)}
   finally{rf(!1)}
 }
 function ic(){if(!D)return;v3(),f3("change")}function nl(r){if(!r)return;if(!r.type.startsWith("image/")){XA(v.onlyImage);return}let d=URL.createObjectURL(r),j=new Image;if(j.onload=()=>{if(ZA)URL.revokeObjectURL(ZA.url);$f({name:r.name,size:r.size,width:j.naturalWidth,height:j.naturalHeight,url:d}),XA(null)},j.onerror=()=>{URL.revokeObjectURL(d),XA(v.cannotRead)},j.src=d,J7.current)J7.current.value=""}function Xc(r){if(!r)return;if(!r.type.startsWith("image/")){XA(v.onlyImage);return}let d=URL.createObjectURL(r),j=new Image;if(j.onload=()=>{if(SA)URL.revokeObjectURL(SA.url);Zn({name:r.name,size:r.size,width:j.naturalWidth,height:j.naturalHeight,url:d}),XA(null)},j.onerror=()=>{URL.revokeObjectURL(d),XA(v.cannotRead)},j.src=d,R7.current)R7.current.value=""}let[C,w3]=Y.useState({genre:"war",style:"Cinematic",imageKey:ff[0]?.key||""});
