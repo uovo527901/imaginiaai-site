@@ -12,8 +12,12 @@ function json(statusCode, payload, headers = {}) {
       "Access-Control-Allow-Origin": "*",
       ...headers,
     },
-    body: JSON.stringify(payload.ok ? { ok: true, data: payload } : payload),
+    body: JSON.stringify(payload),
   };
+}
+
+function success(data) {
+  return json(200, { ok: true, data: { ok: true, ...data } });
 }
 
 function failure(statusCode, error) {
@@ -79,7 +83,7 @@ exports.handler = async (event) => {
       if (exists) return failure(200, "이미 있는 이메일이에요.");
       const user = { email, password, createdAt: new Date().toISOString(), totalCount: 0, todayKey: todayKey(), todayCount: 0 };
       global.__users.push(user);
-      return json(200, { ok: true, token: "token-" + email });
+      return success({ token: "token-" + email });
     }
 
     // 로그인
@@ -89,7 +93,7 @@ exports.handler = async (event) => {
       const user = global.__users.find(u => u.email === email);
       if (!user) return failure(200, "없는 이메일이에요.");
       if (user.password !== password) return failure(200, "비밀번호가 틀렸어요.");
-      return json(200, { ok: true, token: "token-" + email });
+      return success({ token: "token-" + email });
     }
 
     if (action === "admin.login" || action === "admin.set_password") {
@@ -106,13 +110,13 @@ exports.handler = async (event) => {
         todayCount: u.todayKey === todayKey() ? u.todayCount : 0,
         totalCount: u.totalCount || 0,
       }));
-      return json(200, { ok: true, users });
+      return success({ users });
     }
 
     // 영상 만들기 - RunPod
     if (action === "generate") {
       if (!RUNPOD_API_KEY || !RUNPOD_ENDPOINT_ID) return failure(200, "RunPod 키가 설정이 안 됐어요.");
-      return json(200, { ok: true, message: "RunPod 호출 준비됨" });
+      return success({ message: "RunPod 호출 준비됨" });
     }
 
     return failure(400, "지원하지 않는 요청이에요.");

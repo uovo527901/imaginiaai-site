@@ -40,7 +40,8 @@ function startSession(key, passwordHash) {
 }
 
 export async function getAdminCredentials() {
-  const key = process.env.ADMIN_PASSWORD_HASH;
+  const password = process.env.ADMIN_PASSWORD;
+  const key = password ? createHash("sha256").update(password).digest("hex") : process.env.ADMIN_PASSWORD_HASH;
   if (!key) return null;
   const { sql } = getDatabase();
   const [admin] = await sql`SELECT admin_password_hash FROM imaginia_gallery_state WHERE singleton`;
