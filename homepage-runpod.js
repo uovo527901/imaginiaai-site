@@ -1,314 +1,189 @@
 // ============================================================
-// homepage-runpod.js - v3
-// blob: 사진도 찾게 했어. RunPod가 시작되면 화면에 표시해.
+// homepage-runpod.js v5 - 사진 + 프롬프트 같이 보내기
 // ============================================================
 
 (function () {
 
-  var alreadyStarted = false;
-  var lastImage = "";
-  var lastPrompt = "";
-
-  function showMsg(msg) {
-    var el = document.getElementById("runpod-msg");
-    if (!el) {
-      el = document.createElement("div");
-      el.id = "runpod-msg";
-      el.style.cssText = "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#7c3aed;color:#fff;padding:12px 20px;border-radius:999px;font-size:15px;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.3);";
-      document.body.appendChild(el);
-    }
-    el.textContent = msg;
-    el.style.display = "block";
-  }
+  var RUNPOD_URL = "/actions";
+  var POLL_MAX = 60;
+  var POLL_MS = 10000;
 
   // ------------------------------------------------------------
-  // 1. 사진을 512px로 작게 만들기
+  // 1. 사진 파일 -> base64로 바꾸기
   // ------------------------------------------------------------
-  function compressImage(dataUrl, callback) {
-    var img = new Image();
-    img.onload = function () {
-      var max = 512;
-      var w = img.width;
-      var h = img.height;
-      if (w > max || h > max) {
-        var s = Math.min(max / w, max / h);
-        w = Math.round(w * s);
-        h = Math.round(h * s);
-      }
-      var c = document.createElement("canvas");
-      c.width = w;
-      c.height = h;
-      c.getContext("2d").drawImage(img, 0, 0, w, h);
-      var small = c.toDataURL("image/jpeg", 0.7);
-      callback(small);
-    };
-    img.src = dataUrl;
-  }
-
-  // ------------------------------------------------------------
-  // 2. blob: 주소를 data: 주소로 바꾸기
-  // ------------------------------------------------------------
-  function blobToDataUrl(blobUrl, callback) {
-    fetch(blobUrl).then(function (r) {
-      return r.blob();
-    }).then(function (blob) {
-      var reader = new FileReader();
-      reader.onload = function () {
-        callback(reader.result);
-      };
-      reader.readAsDataURL(blob);
-    }).catch(function () {
-      callback(null);
+  function fileToBase64(file) {
+    return new Promise(function (resolve, reject) {
+      var r = new FileReader();
+      r.onload = function () { resolve(r.result); };
+      r.onerror = reject;
+      r.readAsDataURL(file);
     });
   }
 
   // ------------------------------------------------------------
-  // 3. RunPod로 진짜 영상 만들기
+  // 2. RunPod에 보내기 - 사진 + 프롬프트 같이
   // ------------------------------------------------------------
-  async function generateWithRunPod(imageBase64, promptText, videoEl) {
-    try {
-      showMsg("RunPod 시작됨! 뒤에서 진짜 영상 만드는 중...");
+  async function generateVideo(prompt, imageFile, statusEl, videoEl) {
 
-      var res = await fetch("/actions", {
+    // 로그인 확인
+    if (window.ImaginiaAuth && !window.ImaginiaAuth.isLoggedIn()) {
+      window.ImaginiaAuth.showLoginModal();
+      return;
+    }
+
+    if (window.ImaginiaAuth) {
+      var check = window.ImaginiaAuth.canGenerate();
+      if (!check.ok && check.reason === "login") {
+        window.ImaginiaAuth.showLoginModal();
+        return;
+      }
+      if (!check.ok && check.reason === "limit") {
+        alert("오늘은 3번 다 썼어요. 내일 다시 해주세요.");
+        return;
+      }
+    }
+
+    if (!prompt) {
+      alert("프롬프트를 입력해 주세요.");
+      return;
+    }
+
+    if (statusEl) statusEl.textContent = "사진 준비 중...";
+
+    // 사진이 있으면 base64로 바꾸기
+    var imageBase64 = null;
+    if (imageFile) {
+      try {
+        imageBase64 = await fileToBase64(imageFile);
+        // "data:image/jpeg;base64,...." 에서 앞부분 떼기
+        if (imageBase64.indexOf(",") !== -1) {
+          imageBase64 = imageBase64.split(",")[1];
+        }
+      } catch (e) {
+        console.log("사진 읽기 실패", e);
+      }
+    }
+
+    if (statusEl) statusEl.textContent = "진짜 영상 만드는 중... 0/" + POLL_MAX + " - 시작함";
+
+    // 얼굴 지키는 프롬프트로 바꾸기
+    var safePrompt = "The same person from the input image, keep the exact same face, same hairstyle, same clothes, do not change gender, do not change age, do not change identity. " + prompt + ". Only add gentle natural movement, keep her face exactly the same.";
+
+    try {
+      var res = await fetch(RUNPOD_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "runpod.generate",
           args: {
-            prompt: promptText,
-            image: imageBase64,
-            seconds: 5
+            prompt: safePrompt,
+            image_b64: imageBase64,
+            size: "768x432",
+            seconds: 3,
+            fps: 24,
+            seed: 42
           }
         })
       });
 
       var data = await res.json();
-      var id = data.data && data.data.id;
-      if (!id) {
-        showMsg("RunPod 시작 실패. 가짜 영상은 계속 보여줄게.");
-        alreadyStarted = false;
+      var jobId = data.data && data.data.jobId;
+      if (!jobId) {
+        if (statusEl) statusEl.textContent = "시작 실패. 다시 해주세요.";
         return;
       }
 
-      showMsg("RunPod 시작됨! id: " + id.slice(0, 8) + "... 7-8분 기다려");
+      // 10초마다 확인하기
+      for (var i = 1; i <= POLL_MAX; i++) {
+        await new Promise(function (r) { setTimeout(r, POLL_MS); });
+        if (statusEl) statusEl.textContent = "진짜 영상 만드는 중... " + i + "/" + POLL_MAX + " - 확인 중";
 
-      for (var i = 0; i < 60; i++) {
-        await new Promise(function (r) {
-          setTimeout(r, 10000);
-        });
-
-        var s = await fetch("/actions", {
+        var s = await fetch(RUNPOD_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "runpod.status",
-            args: { id: id }
-          })
+          body: JSON.stringify({ action: "runpod.status", args: { jobId: jobId } })
         });
-
         var sd = await s.json();
-        var status = sd.data && sd.data.status;
+        var st = sd.data && sd.data.status;
+        var out = sd.data && sd.data.output;
 
-        showMsg("진짜 영상 만드는 중... " + (i + 1) + "/60 - " + status);
+        if (st === "COMPLETED" && out) {
+          var videoUrl = null;
+          if (out.video) videoUrl = out.video;
+          if (out.data_b64) videoUrl = "data:video/mp4;base64," + out.data_b64;
+          if (out.url) videoUrl = out.url;
 
-        if (status === "COMPLETED") {
-          var out = sd.data && sd.data.output;
-          var url = null;
-
-          if (out && out.data_b64) {
-            url = "data:" + (out.content_type || "video/mp4") + ";base64," + out.data_b64;
-          } else if (typeof out === "string") {
-            url = out;
-          } else if (out) {
-            url = out.video || out.url || out[0];
-          }
-
-          if (url && videoEl) {
-            videoEl.src = url;
+          if (videoEl && videoUrl) {
+            videoEl.src = videoUrl;
+            videoEl.style.display = "block";
             videoEl.play();
           }
-
-          showMsg("진짜 영상 완성! .mp4로 바뀌었어!");
-          alreadyStarted = false;
+          if (statusEl) statusEl.textContent = "진짜 완성!";
           return;
         }
 
-        if (status === "FAILED") {
-          showMsg("진짜 영상 만들기 실패. 가짜 영상은 계속 보여줄게.");
-          alreadyStarted = false;
+        if (st === "FAILED") {
+          if (statusEl) statusEl.textContent = "실패했어요. 다시 해주세요.";
           return;
         }
       }
 
-      showMsg("10분이 지나도 안 끝났어. 뒤에서 계속 만들고 있어.");
-      alreadyStarted = false;
+      if (statusEl) statusEl.textContent = "시간이 오래 걸려요. 조금 더 기다려 주세요.";
 
     } catch (e) {
-      showMsg("에러: " + e.message);
-      alreadyStarted = false;
+      console.log(e);
+      if (statusEl) statusEl.textContent = "에러가 났어요. 다시 해주세요.";
     }
   }
 
   // ------------------------------------------------------------
-  // 4. 지금 페이지에서 사진 + 프롬프트 찾기
-  // ------------------------------------------------------------
-  function findCurrentPrompt() {
-    var ta = document.querySelector("textarea");
-    if (ta && ta.value) {
-      return ta.value;
-    }
-    var textInputs = document.querySelectorAll('input[type="text"]');
-    for (var i = 0; i < textInputs.length; i++) {
-      if (textInputs[i].value && textInputs[i].value.length > 5) {
-        return textInputs[i].value;
-      }
-    }
-    var all = document.body.innerText || "";
-    if (all.indexOf("3D Pixar") !== -1) {
-      var idx = all.indexOf("3D Pixar");
-      return all.slice(idx, idx + 300);
-    }
-    return "same person, same exact face, same clothes, keep identity, do not change face, do not change gender, do not change age, smiling and waving gently";
-  }
-
-  function makePromptSafe(p) {
-    if (!p) {
-      p = "smiling and waving gently";
-    }
-    if (p.indexOf("keep identity") === -1) {
-      p = "same person, same exact face, same clothes, keep identity, do not change face, do not change gender, do not change age, " + p;
-    }
-    return p;
-  }
-
-  function findImageSrc() {
-    // 1. data: 이미지 먼저 찾기
-    var imgs = document.querySelectorAll("img");
-    for (var i = 0; i < imgs.length; i++) {
-      var src = imgs[i].src || "";
-      if (src.indexOf("data:") === 0 && src.length > 1000) {
-        return { type: "data", value: src };
-      }
-    }
-    // 2. blob: 이미지 찾기 (홈페이지 왼쪽 사진이 이거야)
-    for (var j = 0; j < imgs.length; j++) {
-      var s2 = imgs[j].src || "";
-      if (s2.indexOf("blob:") === 0) {
-        return { type: "blob", value: s2 };
-      }
-    }
-    // 3. 파일 입력 찾기
-    var fileInputs = document.querySelectorAll('input[type="file"]');
-    for (var k = 0; k < fileInputs.length; k++) {
-      if (fileInputs[k].files && fileInputs[k].files[0]) {
-        return { type: "file", value: fileInputs[k].files[0] };
-      }
-    }
-    return null;
-  }
-
-  // ------------------------------------------------------------
-  // 5. 비디오가 생기면, 자동으로 RunPod 시작하기
-  // ------------------------------------------------------------
-  function tryStart(videoEl) {
-    if (alreadyStarted) {
-      return;
-    }
-    if (!videoEl) {
-      return;
-    }
-
-    var found = findImageSrc();
-    if (!found) {
-      return;
-    }
-
-    var promptText = makePromptSafe(findCurrentPrompt());
-
-    // 파일이면, 먼저 읽기
-    if (found.type === "file") {
-      var reader = new FileReader();
-      reader.onload = function () {
-        var dataUrl = reader.result;
-        if (dataUrl === lastImage && promptText === lastPrompt) {
-          return;
-        }
-        lastImage = dataUrl;
-        lastPrompt = promptText;
-        alreadyStarted = true;
-        compressImage(dataUrl, function (small) {
-          generateWithRunPod(small, promptText, videoEl);
-        });
-      };
-      reader.readAsDataURL(found.value);
-      return;
-    }
-
-    // blob이면, data로 바꾸기
-    if (found.type === "blob") {
-      blobToDataUrl(found.value, function (dataUrl) {
-        if (!dataUrl) {
-          return;
-        }
-        if (dataUrl === lastImage && promptText === lastPrompt) {
-          return;
-        }
-        lastImage = dataUrl;
-        lastPrompt = promptText;
-        alreadyStarted = true;
-        compressImage(dataUrl, function (small) {
-          generateWithRunPod(small, promptText, videoEl);
-        });
-      });
-      return;
-    }
-
-    // data면, 바로 시작
-    if (found.value === lastImage && promptText === lastPrompt) {
-      return;
-    }
-    lastImage = found.value;
-    lastPrompt = promptText;
-    alreadyStarted = true;
-    compressImage(found.value, function (small) {
-      generateWithRunPod(small, promptText, videoEl);
-    });
-  }
-
-  // ------------------------------------------------------------
-  // 6. 페이지가 다 로딩되면, 비디오를 감시하기
+  // 3. 홈페이지 버튼에 연결하기
   // ------------------------------------------------------------
   window.addEventListener("load", function () {
+    // Generate 버튼 찾기
+    var btns = document.querySelectorAll("button");
+    btns.forEach(function (btn) {
+      var t = (btn.textContent || "").toLowerCase();
+      if (t.indexOf("generate") === -1) return;
+      if (btn.dataset.imaginiaBound) return;
+      btn.dataset.imaginiaBound = "1";
 
-    document.addEventListener("click", function () {
-      setTimeout(function () {
-        var v = document.querySelector("video");
-        if (v) {
-          tryStart(v);
+      btn.addEventListener("click", async function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // 프롬프트 입력창 찾기
+        var promptInput = document.querySelector('textarea, input[type="text"][placeholder*="prompt" i], input[type="text"][placeholder*="프롬프트" i]');
+        var prompt = promptInput ? promptInput.value : "";
+        if (!prompt) {
+          prompt = "smiles gently and waves";
         }
-      }, 1000);
+
+        // 사진 입력창 찾기
+        var fileInput = document.querySelector('input[type="file"]');
+        var file = fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+
+        // 상태, 비디오 찾기
+        var statusEl = document.getElementById("imaginia-status") || document.querySelector("[data-status]");
+        var videoEl = document.querySelector("video");
+
+        // 상태가 없으면 만들기
+        if (!statusEl) {
+          statusEl = document.createElement("div");
+          statusEl.id = "imaginia-status";
+          statusEl.style.cssText = "margin:12px 0;font-size:14px;color:#111;";
+          btn.parentNode.insertBefore(statusEl, btn.nextSibling);
+        }
+        if (!videoEl) {
+          videoEl = document.createElement("video");
+          videoEl.controls = true;
+          videoEl.style.cssText = "width:100%;max-width:640px;margin-top:12px;display:none;border-radius:12px;";
+          btn.parentNode.insertBefore(videoEl, statusEl.nextSibling);
+        }
+
+        await generateVideo(prompt, file, statusEl, videoEl);
+      });
     });
-
-    var observer = new MutationObserver(function () {
-      var v = document.querySelector("video");
-      if (v) {
-        tryStart(v);
-      }
-    });
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true
-    });
-
-    setTimeout(function () {
-      var v = document.querySelector("video");
-      if (v) {
-        tryStart(v);
-      }
-    }, 2000);
-
   });
 
 })();
