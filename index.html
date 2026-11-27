@@ -3131,15 +3131,15 @@ async function adminPasswordRequest(action, args) {
   });
   if (!response.headers.get("content-type")?.includes("application/json")) throw Error();
   const data = await response.json();
-  if (response.status === 401 && data?.ok === false) return false;
+  if (data?.error) return data;
   if (!response.ok || data?.ok !== true) throw Error();
-  return true;
+  return data;
 }
 function v3(){F9(""),C9(""),k9(""),S9(""),pA(null),hz(null)}function g9(){galleryRequest("lock").catch(()=>{}),o9(!1),Qf(!1),xn(!1),zf(null),$f(null),Zn(null),f3(null),v3(),w7(v.adminOffNotice)}function D9(r){if(D){g9();return}nv(r),v3(),f3("login")}function cc(){D9(!1)}function dc(){if(D){document.getElementById("gallery")?.scrollIntoView({behavior:"smooth",block:"start"});return}D9(!0)}function U9(){if(o9(!0),f3(null),v3(),w7(v.adminOnNotice),Pc)nv(!1),window.setTimeout(()=>{document.getElementById("gallery")?.scrollIntoView({behavior:"smooth",block:"start"})},60)}
 async function $9(){
   if(!Nz){pA(S.checkMsg);return}
   rf(!0),pA(null);
-  try{if(!(await galleryRequest("unlock",{password:Nz})).ok){pA(S.wrongMsg);return}U9()}
+  try{const data=await adminPasswordRequest("admin.login",{password:Nz});if(data.error){pA(data.error);return}U9()}
   catch{pA(adminConnectionError)}
   finally{rf(!1)}
 }
@@ -3147,7 +3147,7 @@ async function Al(){
   if(!oz){pA(S.wrongMsg);return}
   if(!R3||R3!==Bz){pA(S.checkMsg);return}
   rf(!0),pA(null);
-  try{if(!await adminPasswordRequest("admin.set_password",{password:oz,newPassword:R3})){pA(S.wrongMsg);return}f3(null),v3(),w7(S.changedMsg)}
+  try{const data=await adminPasswordRequest("admin.set_password",{password:oz,newPassword:R3});if(data.error){pA(data.error);return}f3(null),v3(),w7(S.changedMsg)}
   catch{pA(adminConnectionError)}
   finally{rf(!1)}
 }

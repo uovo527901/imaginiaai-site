@@ -1,5 +1,3 @@
-const { createHash, timingSafeEqual } = require("node:crypto");
-
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY || "";
 const RUNPOD_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID || "";
 
@@ -33,37 +31,13 @@ function adminCookie(event) {
 
 async function handleAdminLogin(args) {
   const password = process.env.ADMIN_PASSWORD;
-  if (!password) return failure(503, "ADMIN_PASSWORD가 Netlify에 없어요.");
-
-  const digest = (value) => createHash("sha256").update(value, "utf16le").digest();
-  if (typeof args.password !== "string" || !timingSafeEqual(digest(args.password), digest(password))) {
-    return failure(401, "비밀번호가 틀렸어요.");
+  if (!password) return failure(503, "ADMIN_PASSWORD가 없어요.");
+  if (args.password === password) {
+    const { startSession } = await import("./gallery.mjs");
+    const cookie = startSession(password).headers.get("set-cookie");
+    return json(200, { ok: true }, { "Set-Cookie": cookie });
   }
-
-  const { getAdminCredentials, startSession } = await import("./gallery.mjs");
-  const { key, passwordHash } = await getAdminCredentials();
-  const cookie = startSession(key, passwordHash).headers.get("set-cookie");
-  return json(200, { ok: true }, { "Set-Cookie": cookie });
-}
-
-async function handleAdminPassword(event, args) {
-  const { default: gallery } = await import("./gallery.mjs");
-  const response = await gallery(new Request("http://localhost", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Cookie: adminCookie(event) },
-    body: JSON.stringify({
-      action: "change-password",
-      password: args.password,
-      newPassword: args.newPassword,
-    }),
-  }));
-  if (response.status === 401) return failure(401, "비밀번호가 틀렸거나 관리자 세션이 만료됐어요.");
-  if (response.status === 400) return failure(400, "새 비밀번호를 확인해 주세요.");
-  if (response.status === 503) return failure(503, "관리자 비밀번호가 설정되지 않았어요.");
-  if (!response.ok) return failure(500, "관리자 요청을 처리하지 못했어요.");
-
-  const cookie = response.headers.get("set-cookie");
-  return json(200, { ok: true }, cookie ? { "Set-Cookie": cookie } : {});
+  return failure(401, "비밀번호가 틀렸어요.");
 }
 
 function todayKey() {
@@ -116,13 +90,13 @@ exports.handler = async (event) => {
 
     if (action === "admin.login") return await handleAdminLogin(args);
     if (action === "admin.set_password") {
-      return await handleAdminPassword(event, args);
+      return failure(409, "관리자 비밀번호는 ADMIN_PASSWORD에서만 변경할 수 있어요.");
     }
 
     // 가입한 사람 목록
     if (action === "admin.list_users") {
       const { hasAdminSession } = await import("./gallery.mjs");
-      if (!await hasAdminSession(adminCookie(event))) return failure(401, "관리자 로그인이 필요해요.");
+      if (!hasAdminSession(adminCookie(event))) return failure(401, "관리자 로그인이 필요해요.");
       const users = global.__users.map(u => ({
         email: u.email,
         createdAt: u.createdAt,

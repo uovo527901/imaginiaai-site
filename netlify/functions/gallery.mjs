@@ -1,8 +1,6 @@
-import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
-import { promisify } from "node:util";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { getDatabase } from "@netlify/database";
 
-const deriveKey = promisify(scrypt);
 const sessionName = "imaginia_admin";
 const sessionAge = 60 * 60;
 
@@ -16,44 +14,25 @@ function sameValue(left, right) {
   return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
 }
 
-async function checkPassword(password, storedHash) {
-  if (typeof password !== "string" || !password || password.length > 1024) return false;
-  if (!storedHash.startsWith("scrypt:")) {
-    return sameValue(createHash("sha256").update(password).digest("hex"), storedHash);
-  }
-  const [, salt, hash] = storedHash.split(":");
-  const key = await deriveKey(password, salt, 32);
-  return sameValue(key.toString("hex"), hash);
-}
-
-function signSession(expiry, key, passwordHash) {
-  return createHmac("sha256", key).update(`imaginia-gallery:${expiry}:${passwordHash}`).digest("hex");
+function signSession(expiry, password) {
+  return createHmac("sha256", password).update(`imaginia-gallery:${expiry}`).digest("hex");
 }
 
 function sessionCookie(value, maxAge) {
   return { "Set-Cookie": `${sessionName}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}` };
 }
 
-export function startSession(key, passwordHash) {
+export function startSession(password) {
   const expiry = Math.floor(Date.now() / 1000) + sessionAge;
-  return json({ ok: true }, 200, sessionCookie(`${expiry}.${signSession(expiry, key, passwordHash)}`, sessionAge));
+  return json({ ok: true }, 200, sessionCookie(`${expiry}.${signSession(expiry, password)}`, sessionAge));
 }
 
-export async function getAdminCredentials() {
-  const password = process.env.ADMIN_PASSWORD;
-  const key = password ? createHash("sha256").update(password).digest("hex") : process.env.ADMIN_PASSWORD_HASH;
-  if (!key) return null;
-  const { sql } = getDatabase();
-  const [admin] = await sql`SELECT admin_password_hash FROM imaginia_gallery_state WHERE singleton`;
-  return { key, sql, passwordHash: admin?.admin_password_hash || key };
-}
-
-export async function hasAdminSession(cookieHeader, credentials) {
+export function hasAdminSession(cookieHeader) {
   const cookie = cookieHeader?.split(/;\s*/).find(value => value.startsWith(`${sessionName}=`));
   const [expiry, signature] = cookie?.slice(sessionName.length + 1).split(".") ?? [];
   if (!/^\d{10}$/.test(expiry) || Number(expiry) <= Math.floor(Date.now() / 1000) || !/^[a-f0-9]{64}$/.test(signature)) return false;
-  const admin = credentials ?? await getAdminCredentials();
-  return !!admin && sameValue(signature, signSession(expiry, admin.key, admin.passwordHash));
+  const password = process.env.ADMIN_PASSWORD;
+  return !!password && sameValue(signature, signSession(expiry, password));
 }
 
 export default async function gallery(request) {
@@ -75,34 +54,14 @@ export default async function gallery(request) {
     }
     const action = data?.action;
     if (action === "lock") return json({ ok: true }, 200, sessionCookie("", 0));
-    if (!["unlock", "save", "change-password"].includes(action)) return json({ error: "Unknown action" }, 400);
-
-    const credentials = await getAdminCredentials();
-    if (!credentials) return json({ error: "Gallery admin is not configured" }, 503);
-    const { key, sql, passwordHash } = credentials;
-
-    if (action === "unlock") {
-      return await checkPassword(data.password, passwordHash) ? startSession(key, passwordHash) : json({ ok: false }, 401);
-    }
-
-    if (!await hasAdminSession(request.headers.get("cookie"), credentials)) return json({ error: "Gallery admin session expired" }, 401);
-    if (action === "change-password") {
-      if (!await checkPassword(data.password, passwordHash)) return json({ ok: false }, 401);
-      if (typeof data.newPassword !== "string" || !data.newPassword || data.newPassword.length > 1024) {
-        return json({ error: "Invalid password" }, 400);
-      }
-      const salt = randomBytes(16).toString("hex");
-      const newHash = `scrypt:${salt}:${(await deriveKey(data.newPassword, salt, 32)).toString("hex")}`;
-      await sql`INSERT INTO imaginia_gallery_state (admin_password_hash) VALUES (${newHash})
-        ON CONFLICT (singleton) DO UPDATE SET admin_password_hash = EXCLUDED.admin_password_hash`;
-      return startSession(key, newHash);
-    }
+    if (action !== "save") return json({ error: "Unknown action" }, 400);
+    if (!hasAdminSession(request.headers.get("cookie"))) return json({ error: "Gallery admin session expired" }, 401);
 
     const { userWorks, overrides } = data;
     if (!Array.isArray(userWorks) || !overrides || typeof overrides !== "object" || Array.isArray(overrides)) {
       return json({ error: "Invalid gallery data" }, 400);
     }
-    await sql`INSERT INTO imaginia_gallery_state (user_works, overrides)
+    await getDatabase().sql`INSERT INTO imaginia_gallery_state (user_works, overrides)
       VALUES (${JSON.stringify(userWorks)}::jsonb, ${JSON.stringify(overrides)}::jsonb)
       ON CONFLICT (singleton) DO UPDATE SET user_works = EXCLUDED.user_works, overrides = EXCLUDED.overrides`;
     return json({ ok: true });
