@@ -172,48 +172,19 @@
     };
   }
 
-  // ------------------------------------------------------------
-  // 메뉴바에 있는 로그인 버튼만 사용하기
-  // 까만 버튼 안 만듦. 예전 까만 버튼이 있으면 지우기
-  // ------------------------------------------------------------
+  function remainingToday() {
+    var user = getUser();
+    return user ? Math.max(0, 3 - getTodayCount(user.email)) : null;
+  }
+
   function updateLoginUI() {
-    // 예전 까만 버튼이 있으면 지우기
-    var oldBtn = document.getElementById("imaginia-login-top-btn");
-    if (oldBtn) oldBtn.remove();
+    window.dispatchEvent(new Event("imaginia-auth-change"));
+  }
 
-    // 메뉴바에 있는 로그인 버튼 찾기 - "로그인"이라고 적힌 버튼
-    var btns = document.querySelectorAll("button, a");
-    var loginBtn = null;
-    for (var i = 0; i < btns.length; i++) {
-      var t = (btns[i].textContent || "").trim();
-      if (t === "로그인" || t.indexOf("오늘") !== -1 && t.indexOf("남음") !== -1) {
-        // 메뉴바에 있는 거 - 까만 버튼이 아니고, 모달 안에 있는 것도 아니고
-        if (btns[i].id === "imaginia-login-btn") continue;
-        if (btns[i].closest && btns[i].closest("#imaginia-login-modal")) continue;
-        loginBtn = btns[i];
-        break;
-      }
-    }
-    if (!loginBtn) return;
-
-    var u = getUser();
-    if (u) {
-      var left = 3 - getTodayCount(u.email);
-      if (left < 0) left = 0;
-      loginBtn.textContent = "오늘 " + left + "번 남음 · 로그아웃";
-      loginBtn.onclick = function (e) {
-        e.preventDefault();
-        clearUser();
-        updateLoginUI();
-        alert("로그아웃됐어요.");
-      };
-    } else {
-      loginBtn.textContent = "로그인";
-      loginBtn.onclick = function (e) {
-        e.preventDefault();
-        showLoginModal();
-      };
-    }
+  function logout() {
+    clearUser();
+    updateLoginUI();
+    alert("로그아웃됐어요.");
   }
 
   function protectGenerate() {
@@ -255,7 +226,9 @@
     getUser: getUser,
     isLoggedIn: isLoggedIn,
     showLoginModal: showLoginModal,
-    canGenerate: canGenerate
+    canGenerate: canGenerate,
+    remainingToday: remainingToday,
+    logout: logout
   };
 
 })();
