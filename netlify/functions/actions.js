@@ -7,6 +7,7 @@
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY || "";
 const RUNPOD_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID || "";
 const RUNPOD_BASE = "https://api.runpod.ai/v2/" + RUNPOD_ENDPOINT_ID;
+const { hasGallerySession } = require("../lib/gallery-session.js");
 
 let USERS = {};
 let ALL_EMAILS = [];
@@ -45,6 +46,26 @@ exports.handler = async function (event) {
     try { body = JSON.parse(event.body || "{}"); } catch (e) { body = {}; }
     var action = body.action || "";
     var args = body.args || {};
+
+    if (action === "gallery.list" || action === "gallery.save") {
+      if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
+      if (action === "gallery.save" && !hasGallerySession(event.headers)) {
+        return json(401, { error: "Administrator login required" });
+      }
+      const value = args.value;
+      if (action === "gallery.save" && (!Array.isArray(value?.userWorks) || !value.overrides || typeof value.overrides !== "object" || Array.isArray(value.overrides))) {
+        return json(400, { error: "Invalid gallery state" });
+      }
+      try {
+        const { readGallery, saveGallery } = await import("../lib/gallery-state.mjs");
+        if (action === "gallery.list") return json(200, await readGallery());
+
+        await saveGallery({ userWorks: value.userWorks, overrides: value.overrides });
+        return json(200, { ok: true });
+      } catch {
+        return json(500, { error: "Gallery storage unavailable" });
+      }
+    }
 
     if (action === "auth.signup") {
       var email = (args.email || "").trim().toLowerCase();
