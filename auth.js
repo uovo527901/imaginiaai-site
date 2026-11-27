@@ -1,14 +1,12 @@
 // ============================================================
 // auth.js - 로그인 + 하루 3번 제한
+// 메뉴바에 있는 로그인 버튼만 사용하기 - 까만 버튼 안 만듦
 // ============================================================
 
 (function () {
 
   var API = "/.netlify/functions/actions";
 
-  // ------------------------------------------------------------
-  // 1. 지금 로그인했는지 확인하기
-  // ------------------------------------------------------------
   function getUser() {
     try {
       var s = localStorage.getItem("imaginia_user");
@@ -32,9 +30,6 @@
     return !!(u && u.email);
   }
 
-  // ------------------------------------------------------------
-  // 2. 오늘 몇 번 만들었는지 확인하기
-  // ------------------------------------------------------------
   function getTodayKey() {
     var d = new Date();
     var y = d.getFullYear();
@@ -69,9 +64,6 @@
     return { ok: true, count: c };
   }
 
-  // ------------------------------------------------------------
-  // 3. 로그인창 보여주기
-  // ------------------------------------------------------------
   function showLoginModal() {
     var old = document.getElementById("imaginia-login-modal");
     if (old) {
@@ -181,37 +173,49 @@
   }
 
   // ------------------------------------------------------------
-  // 4. 로그인 버튼 UI 업데이트하기
+  // 메뉴바에 있는 로그인 버튼만 사용하기
+  // 까만 버튼 안 만듦. 예전 까만 버튼이 있으면 지우기
   // ------------------------------------------------------------
   function updateLoginUI() {
-    var u = getUser();
-    var btn = document.getElementById("imaginia-login-top-btn");
-    if (!btn) {
-      btn = document.createElement("button");
-      btn.id = "imaginia-login-top-btn";
-      btn.style.cssText = "position:fixed;top:16px;right:16px;z-index:9999;background:#111;color:#fff;border:0;border-radius:999px;padding:10px 16px;font-size:14px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.2);";
-      document.body.appendChild(btn);
+    // 예전 까만 버튼이 있으면 지우기
+    var oldBtn = document.getElementById("imaginia-login-top-btn");
+    if (oldBtn) oldBtn.remove();
+
+    // 메뉴바에 있는 로그인 버튼 찾기 - "로그인"이라고 적힌 버튼
+    var btns = document.querySelectorAll("button, a");
+    var loginBtn = null;
+    for (var i = 0; i < btns.length; i++) {
+      var t = (btns[i].textContent || "").trim();
+      if (t === "로그인" || t.indexOf("오늘") !== -1 && t.indexOf("남음") !== -1) {
+        // 메뉴바에 있는 거 - 까만 버튼이 아니고, 모달 안에 있는 것도 아니고
+        if (btns[i].id === "imaginia-login-btn") continue;
+        if (btns[i].closest && btns[i].closest("#imaginia-login-modal")) continue;
+        loginBtn = btns[i];
+        break;
+      }
     }
+    if (!loginBtn) return;
+
+    var u = getUser();
     if (u) {
       var left = 3 - getTodayCount(u.email);
       if (left < 0) left = 0;
-      btn.textContent = u.email + " · 오늘 " + left + "번 남음 · 로그아웃";
-      btn.onclick = function () {
+      loginBtn.textContent = "오늘 " + left + "번 남음 · 로그아웃";
+      loginBtn.onclick = function (e) {
+        e.preventDefault();
         clearUser();
         updateLoginUI();
         alert("로그아웃됐어요.");
       };
     } else {
-      btn.textContent = "로그인";
-      btn.onclick = function () {
+      loginBtn.textContent = "로그인";
+      loginBtn.onclick = function (e) {
+        e.preventDefault();
         showLoginModal();
       };
     }
   }
 
-  // ------------------------------------------------------------
-  // 5. Generate 버튼을 가로채기
-  // ------------------------------------------------------------
   function protectGenerate() {
     document.addEventListener("click", function (e) {
       var target = e.target;
@@ -242,9 +246,6 @@
     }, true);
   }
 
-  // ------------------------------------------------------------
-  // 6. 시작하기
-  // ------------------------------------------------------------
   window.addEventListener("load", function () {
     updateLoginUI();
     protectGenerate();
