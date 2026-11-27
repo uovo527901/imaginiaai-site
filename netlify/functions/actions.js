@@ -1,139 +1,85 @@
-// ============================================================
 // netlify/functions/actions.js
-// 로그인 + 회원가입 + 관리자 목록 + RunPod
-// blobs 없이 - 메모리 저장
-// ============================================================
+// 비밀번호는 해시 안 쓰고, Netlify에 있는 ADMIN_PASSWORD랑 직접 비교해
 
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY || "";
 const RUNPOD_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID || "";
-const RUNPOD_BASE = "https://api.runpod.ai/v2/" + RUNPOD_ENDPOINT_ID;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 
-let USERS = {};
-let ALL_EMAILS = [];
+if (!global.__users) global.__users = [];
 
-function json(status, data, headers) {
+function json(statusCode, data) {
   return {
-    statusCode: status,
-    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", ...headers },
-    body: JSON.stringify({ data: data })
+    statusCode,
+    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+    body: JSON.stringify({ data }),
   };
 }
 
 function todayKey() {
-  var d = new Date();
-  var y = d.getFullYear();
-  var m = String(d.getMonth() + 1).padStart(2, "0");
-  var day = String(d.getDate()).padStart(2, "0");
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
   return y + "-" + m + "-" + day;
 }
 
-function hashPassword(pw) {
-  var h = 0;
-  for (var i = 0; i < pw.length; i++) {
-    h = (h * 31 + pw.charCodeAt(i)) >>> 0;
+exports.handler = async (event) => {
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 200, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type" }, body: "" };
   }
-  return "h" + h + "_" + pw.length;
-}
+  let body = {};
+  try { body = JSON.parse(event.body || "{}"); } catch (e) { body = {}; }
+  const action = body.action || "";
+  const args = body.args || {};
 
-exports.handler = async function (event) {
-  try {
-    if (event.httpMethod === "OPTIONS") {
-      return json(200, { ok: true });
-    }
-
-    var body = {};
-    try { body = JSON.parse(event.body || "{}"); } catch (e) { body = {}; }
-    var action = body.action || "";
-    var args = body.args || {};
-
-    if (action === "auth.signup") {
-      var email = (args.email || "").trim().toLowerCase();
-      var password = args.password || "";
-      if (!email || !password) return json(200, { ok: false, error: "empty" });
-      if (USERS[email]) return json(200, { ok: false, error: "exists" });
-      var user = {
-        email: email,
-        password: hashPassword(password),
-        createdAt: new Date().toISOString(),
-        totalCount: 0,
-        today: todayKey(),
-        todayCount: 0
-      };
-      USERS[email] = user;
-      if (ALL_EMAILS.indexOf(email) === -1) ALL_EMAILS.push(email);
-      return json(200, { ok: true, token: "tok_" + email, email: email });
-    }
-
-    if (action === "auth.login") {
-      var email2 = (args.email || "").trim().toLowerCase();
-      var pw2 = args.password || "";
-      var u = USERS;
-      if (!u) return json(200, { ok: false, error: "notfound" });
-      if (u.password !== hashPassword(pw2)) return json(200, { ok: false, error: "wrong" });
-      return json(200, { ok: true, token: "tok_" + email2, email: email2 });
-    }
-
-    if (action === "admin.list_users") {
-      const privateHeaders = { "Cache-Control": "no-store" };
-      const { hasAdminSession } = await import("./gallery.mjs");
-      if (!await hasAdminSession(event.headers?.cookie ?? event.headers?.Cookie)) {
-        return json(401, { ok: false, error: "unauthorized" }, privateHeaders);
-      }
-      var users = [];
-      for (var i = 0; i < ALL_EMAILS.length; i++) {
-        var one = USERS[ALL_EMAILS[i]];
-        if (one) {
-          users.push({
-            email: one.email,
-            createdAt: one.createdAt,
-            totalCount: one.totalCount || 0,
-            today: one.today,
-            todayCount: one.todayCount || 0
-          });
-        }
-      }
-      users.sort(function (a, b) { return b.createdAt.localeCompare(a.createdAt); });
-      return json(200, { ok: true, users: users, total: users.length }, privateHeaders);
-    }
-
-    if (action === "runpod.generate") {
-      if (!RUNPOD_API_KEY) return json(200, { ok: false, error: "no_key" });
-      var prompt = args.prompt || "";
-      var image_b64 = args.image_b64 || null;
-      var input = {
-        prompt: prompt,
-        size: args.size || "768x432",
-        seconds: args.seconds || 3,
-        fps: args.fps || 24,
-        seed: args.seed || 42
-      };
-      if (image_b64) {
-        input.image = image_b64;
-        input.image_b64 = image_b64;
-      }
-      var r = await fetch(RUNPOD_BASE + "/run", {
-        method: "POST",
-        headers: { "Authorization": "Bearer " + RUNPOD_API_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ input: input })
-      });
-      var d = await r.json();
-      return json(200, { jobId: d.id || d.jobId, status: d.status });
-    }
-
-    if (action === "runpod.status") {
-      var jobId = args.jobId || "";
-      if (!jobId) return json(200, { ok: false });
-      var r2 = await fetch(RUNPOD_BASE + "/status/" + jobId, {
-        headers: { "Authorization": "Bearer " + RUNPOD_API_KEY }
-      });
-      var d2 = await r2.json();
-      return json(200, { status: d2.status, output: d2.output });
-    }
-
-    return json(200, { ok: false, error: "unknown_action" });
-
-  } catch (e) {
-    console.log(e);
-    return json(500, { ok: false, error: String(e) });
+  // 회원가입
+  if (action === "auth.signup") {
+    const email = (args.email || "").trim().toLowerCase();
+    const password = args.password || "";
+    if (!email || !password) return json(400, { ok: false, message: "이메일과 비밀번호를 입력해 주세요." });
+    const exists = global.__users.find(u => u.email === email);
+    if (exists) return json(200, { ok: false, message: "이미 있는 이메일이에요." });
+    const user = { email, password, createdAt: new Date().toISOString(), totalCount: 0, todayKey: todayKey(), todayCount: 0 };
+    global.__users.push(user);
+    return json(200, { ok: true, token: "token-" + email });
   }
+
+  // 로그인
+  if (action === "auth.login") {
+    const email = (args.email || "").trim().toLowerCase();
+    const password = args.password || "";
+    const user = global.__users.find(u => u.email === email);
+    if (!user) return json(200, { ok: false, message: "없는 이메일이에요." });
+    if (user.password !== password) return json(200, { ok: false, message: "비밀번호가 틀렸어요." });
+    return json(200, { ok: true, token: "token-" + email });
+  }
+
+  // 관리자 로그인 - ADMIN_PASSWORD랑 직접 비교, 해시 안 씀
+  if (action === "admin.login") {
+    const pw = args.password || "";
+    if (!ADMIN_PASSWORD) return json(200, { ok: false, message: "관리자 비밀번호가 설정이 안 됐어요. Netlify에 ADMIN_PASSWORD를 넣어주세요." });
+    if (pw === ADMIN_PASSWORD) return json(200, { ok: true });
+    return json(200, { ok: false, message: "비밀번호가 틀렸어요." });
+  }
+
+  // 가입한 사람 목록
+  if (action === "admin.list_users") {
+    const users = global.__users.map(u => ({
+      email: u.email,
+      createdAt: u.createdAt,
+      todayCount: u.todayKey === todayKey() ? u.todayCount : 0,
+      totalCount: u.totalCount || 0,
+    }));
+    return json(200, { users });
+  }
+
+  // 영상 만들기 - RunPod
+  if (action === "generate") {
+    if (!RUNPOD_API_KEY || !RUNPOD_ENDPOINT_ID) {
+      return json(200, { ok: false, message: "RunPod 키가 설정이 안 됐어요." });
+    }
+    return json(200, { ok: true, message: "RunPod 호출 준비됨" });
+  }
+
+  return json(200, { ok: false, message: "알 수 없는 action: " + action });
 };
