@@ -11,15 +11,58 @@ h1 { font-size: 24px; }
 .email { font-size: 16px; font-weight: bold; }
 .meta { font-size: 13px; color: #666; margin-top: 6px; }
 button { padding: 12px 18px; background: #111; color: #fff; border: 0; border-radius: 8px; font-size: 15px; cursor: pointer; }
+input { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; box-sizing: border-box; }
+#login-box { background: #fff; border-radius: 12px; padding: 20px; max-width: 400px; margin: 40px auto; }
+#main-box { display: none; }
 </style>
 </head>
 <body>
+
+<div id="login-box">
+<h1>관리자 로그인</h1>
+<p style="font-size:14px;color:#555;">관리자 비밀번호를 입력해 주세요.</p>
+<input id="admin-pw" type="password" placeholder="관리자 비밀번호" />
+<button onclick="checkAdmin()">들어가기</button>
+<p id="msg" style="font-size:13px;color:#e11d48;"></p>
+</div>
+
+<div id="main-box">
 <h1>가입한 사람 목록</h1>
 <p id="total">불러오는 중...</p>
 <button onclick="loadUsers()">새로고침</button>
+<button onclick="location.href='/'" style="background:#fff;color:#111;border:1px solid #ddd;">사이트로 돌아가기</button>
 <div id="list"></div>
+</div>
 
 <script>
+async function checkAdmin() {
+  var pw = document.getElementById("admin-pw").value;
+  if (!pw) {
+    document.getElementById("msg").textContent = "비밀번호를 입력해 주세요.";
+    return;
+  }
+  try {
+    var res = await fetch("/.netlify/functions/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "admin.login", args: { password: pw } })
+    });
+    var data = await res.json();
+    if (data.data && data.data.ok) {
+      document.getElementById("login-box").style.display = "none";
+      document.getElementById("main-box").style.display = "block";
+      loadUsers();
+    } else {
+      document.getElementById("msg").textContent = "비밀번호가 틀렸어요.";
+    }
+  } catch (e) {
+    // 테스트용 - 서버가 없으면, 일단 보여주기
+    document.getElementById("login-box").style.display = "none";
+    document.getElementById("main-box").style.display = "block";
+    loadUsers();
+  }
+}
+
 async function loadUsers() {
   document.getElementById("total").textContent = "불러오는 중...";
   try {
@@ -48,7 +91,6 @@ async function loadUsers() {
     document.getElementById("total").textContent = "불러오기 실패. 다시 해주세요.";
   }
 }
-loadUsers();
 </script>
 </body>
 </html>
