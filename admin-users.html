@@ -49,8 +49,9 @@ async function requestAdmin(action, args) {
     return { error: "서버에 연결이 안 돼요." };
   }
   const data = await response.json().catch(() => null);
+  if (data?.error) return { status: response.status, error: data.error };
   if (!response.ok || data?.ok !== true) {
-    return { status: response.status, error: data?.error || "서버 응답을 확인할 수 없어요." };
+    return { status: response.status, error: "서버 응답을 확인할 수 없어요." };
   }
   return { status: response.status, data };
 }
