@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>관리자 - 가입한 사람</title>
+<title data-i18n="memberManagement"></title>
 <style>
 body { font-family: sans-serif; background: #f5f5f5; padding: 20px; color: #111; }
 h1 { font-size: 24px; }
@@ -19,26 +19,30 @@ input { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; borde
 <body>
 
 <div id="login-box">
-<h1>관리자 로그인</h1>
-<p style="font-size:14px;color:#555;">관리자 비밀번호를 입력해 주세요.</p>
-<input id="admin-pw" type="password" placeholder="관리자 비밀번호" />
-<button onclick="checkAdmin()">들어가기</button>
+<h1 data-i18n="adminLogin"></h1>
+<p data-i18n="adminPasswordDescription" style="font-size:14px;color:#555;"></p>
+<input id="admin-pw" type="password" data-i18n-placeholder="adminPassword" />
+<button onclick="checkAdmin()" data-i18n="adminEnter"></button>
 <p id="msg" style="font-size:13px;color:#e11d48;"></p>
 </div>
 
 <div id="main-box">
-<h1>가입한 사람 목록</h1>
-<p id="total">불러오는 중...</p>
-<button onclick="loadUsers()">새로고침</button>
-<button onclick="location.href='/'" style="background:#fff;color:#111;border:1px solid #ddd;">사이트로 돌아가기</button>
+<h1 data-i18n="userList"></h1>
+<p id="total"></p>
+<button onclick="loadUsers()" data-i18n="refresh"></button>
+<button onclick="location.href='/'" data-i18n="backToSite" style="background:#fff;color:#111;border:1px solid #ddd;"></button>
 <div id="list"></div>
 </div>
 
+<script src="/i18n.js"></script>
 <script>
+var i18n = window.ImaginiaI18n;
+i18n.apply();
+
 async function checkAdmin() {
   var pw = document.getElementById("admin-pw").value;
   if (!pw) {
-    document.getElementById("msg").textContent = "비밀번호를 입력해 주세요.";
+    i18n.setText(document.getElementById("msg"), "adminPasswordRequired");
     return;
   }
   try {
@@ -53,7 +57,7 @@ async function checkAdmin() {
       document.getElementById("main-box").style.display = "block";
       loadUsers();
     } else {
-      document.getElementById("msg").textContent = "비밀번호가 틀렸어요.";
+      i18n.setText(document.getElementById("msg"), "adminPasswordWrong");
     }
   } catch (e) {
     // 테스트용 - 서버가 없으면, 일단 보여주기
@@ -64,7 +68,8 @@ async function checkAdmin() {
 }
 
 async function loadUsers() {
-  document.getElementById("total").textContent = "불러오는 중...";
+  var total = document.getElementById("total");
+  i18n.setText(total, "loading");
   try {
     var res = await fetch("/.netlify/functions/actions", {
       method: "POST",
@@ -73,22 +78,28 @@ async function loadUsers() {
     });
     var data = await res.json();
     var users = data.data.users || [];
-    document.getElementById("total").textContent = "총 " + users.length + "명 가입했어요";
-    var html = "";
+    i18n.setText(total, "userTotal", { count: users.length });
+    var list = document.createDocumentFragment();
+    function addText(parent, className, text) {
+      var element = document.createElement("div");
+      element.className = className;
+      element.textContent = text;
+      parent.appendChild(element);
+      return element;
+    }
     users.forEach(function (u) {
-      var date = new Date(u.createdAt).toLocaleString("ko-KR");
-      html += '<div class="card">'
-        + '<div class="email">' + u.email + '</div>'
-        + '<div class="meta">가입: ' + date + '</div>'
-        + '<div class="meta">오늘 만든 횟수: ' + u.todayCount + '번 · 전체: ' + u.totalCount + '번</div>'
-        + '</div>';
+      var date = new Date(u.createdAt).toLocaleString(i18n.getLanguage());
+      var card = addText(list, "card", "");
+      addText(card, "email", u.email);
+      addText(card, "meta", i18n.translate("userDate", { date: date }));
+      addText(card, "meta", i18n.translate("userCounts", { today: u.todayCount, total: u.totalCount }));
     });
     if (users.length === 0) {
-      html = '<div class="card">아직 가입한 사람이 없어요.</div>';
+      addText(list, "card", i18n.translate("noUsers"));
     }
-    document.getElementById("list").innerHTML = html;
+    document.getElementById("list").replaceChildren(list);
   } catch (e) {
-    document.getElementById("total").textContent = "불러오기 실패. 다시 해주세요.";
+    i18n.setText(total, "usersFailed");
   }
 }
 </script>
