@@ -3139,7 +3139,7 @@ function v3(){F9(""),C9(""),k9(""),S9(""),pA(null),hz(null)}function g9(){galler
 async function $9(){
   if(!Nz){pA(S.checkMsg);return}
   rf(!0),pA(null);
-  try{if(!await adminPasswordRequest("admin.login",{password:Nz})){pA(S.wrongMsg);return}U9()}
+  try{if(!(await galleryRequest("unlock",{password:Nz})).ok){pA(S.wrongMsg);return}U9()}
   catch{pA(adminConnectionError)}
   finally{rf(!1)}
 }

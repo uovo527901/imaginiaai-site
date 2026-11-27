@@ -34,7 +34,7 @@ function sessionCookie(value, maxAge) {
   return { "Set-Cookie": `${sessionName}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}` };
 }
 
-function startSession(key, passwordHash) {
+export function startSession(key, passwordHash) {
   const expiry = Math.floor(Date.now() / 1000) + sessionAge;
   return json({ ok: true }, 200, sessionCookie(`${expiry}.${signSession(expiry, key, passwordHash)}`, sessionAge));
 }
