@@ -11,10 +11,10 @@ const RUNPOD_BASE = "https://api.runpod.ai/v2/" + RUNPOD_ENDPOINT_ID;
 let USERS = {};
 let ALL_EMAILS = [];
 
-function json(status, data) {
+function json(status, data, headers) {
   return {
     statusCode: status,
-    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", ...headers },
     body: JSON.stringify({ data: data })
   };
 }
@@ -74,6 +74,11 @@ exports.handler = async function (event) {
     }
 
     if (action === "admin.list_users") {
+      const privateHeaders = { "Cache-Control": "no-store" };
+      const { hasAdminSession } = await import("./gallery.mjs");
+      if (!await hasAdminSession(event.headers?.cookie ?? event.headers?.Cookie)) {
+        return json(401, { ok: false, error: "unauthorized" }, privateHeaders);
+      }
       var users = [];
       for (var i = 0; i < ALL_EMAILS.length; i++) {
         var one = USERS[ALL_EMAILS[i]];
@@ -88,7 +93,7 @@ exports.handler = async function (event) {
         }
       }
       users.sort(function (a, b) { return b.createdAt.localeCompare(a.createdAt); });
-      return json(200, { ok: true, users: users, total: users.length });
+      return json(200, { ok: true, users: users, total: users.length }, privateHeaders);
     }
 
     if (action === "runpod.generate") {

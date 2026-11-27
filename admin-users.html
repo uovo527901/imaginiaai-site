@@ -18,7 +18,7 @@ input { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; borde
 </head>
 <body>
 
-<div id="login-box">
+<div id="login-box" hidden>
 <h1>관리자 로그인</h1>
 <p style="font-size:14px;color:#555;">관리자 비밀번호를 입력해 주세요.</p>
 <input id="admin-pw" type="password" placeholder="관리자 비밀번호" />
@@ -36,61 +36,88 @@ input { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; borde
 
 <script>
 async function checkAdmin() {
-  var pw = document.getElementById("admin-pw").value;
-  if (!pw) {
-    document.getElementById("msg").textContent = "비밀번호를 입력해 주세요.";
+  const input = document.getElementById("admin-pw");
+  const message = document.getElementById("msg");
+  if (!input.value) {
+    message.textContent = "비밀번호를 입력해 주세요.";
     return;
   }
   try {
-    var res = await fetch("/.netlify/functions/actions", {
+    const response = await fetch("/.netlify/functions/gallery", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "admin.login", args: { password: pw } })
+      body: JSON.stringify({ action: "unlock", password: input.value })
     });
-    var data = await res.json();
-    if (data.data && data.data.ok) {
-      document.getElementById("login-box").style.display = "none";
-      document.getElementById("main-box").style.display = "block";
-      loadUsers();
-    } else {
-      document.getElementById("msg").textContent = "비밀번호가 틀렸어요.";
+    if (response.status === 401) {
+      message.textContent = "비밀번호가 틀렸어요.";
+      return;
     }
-  } catch (e) {
-    // 테스트용 - 서버가 없으면, 일단 보여주기
-    document.getElementById("login-box").style.display = "none";
-    document.getElementById("main-box").style.display = "block";
-    loadUsers();
+    if (!response.ok || !(await response.json()).ok) throw new Error("Login failed");
+    input.value = "";
+    message.textContent = "";
+    await loadUsers();
+  } catch {
+    message.textContent = "로그인에 실패했어요. 다시 해주세요.";
   }
 }
 
 async function loadUsers() {
-  document.getElementById("total").textContent = "불러오는 중...";
+  const login = document.getElementById("login-box");
+  const main = document.getElementById("main-box");
+  const total = document.getElementById("total");
+  const list = document.getElementById("list");
+  total.textContent = "불러오는 중...";
   try {
-    var res = await fetch("/.netlify/functions/actions", {
+    const response = await fetch("/.netlify/functions/actions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "admin.list_users", args: {} })
     });
-    var data = await res.json();
-    var users = data.data.users || [];
-    document.getElementById("total").textContent = "총 " + users.length + "명 가입했어요";
-    var html = "";
-    users.forEach(function (u) {
-      var date = new Date(u.createdAt).toLocaleString("ko-KR");
-      html += '<div class="card">'
-        + '<div class="email">' + u.email + '</div>'
-        + '<div class="meta">가입: ' + date + '</div>'
-        + '<div class="meta">오늘 만든 횟수: ' + u.todayCount + '번 · 전체: ' + u.totalCount + '번</div>'
-        + '</div>';
+    if (response.status === 401) {
+      main.style.display = "none";
+      list.replaceChildren();
+      login.hidden = false;
+      return;
+    }
+    if (!response.ok) throw new Error("Could not load users");
+    const { data: { users } } = await response.json();
+    login.hidden = true;
+    main.style.display = "block";
+    total.textContent = "총 " + users.length + "명 가입했어요";
+    list.replaceChildren();
+    users.forEach(function (user) {
+      const card = document.createElement("div");
+      card.className = "card";
+      const fields = [
+        ["email", user.email],
+        ["meta", "가입: " + new Date(user.createdAt).toLocaleString("ko-KR")],
+        ["meta", "오늘 만든 횟수: " + user.todayCount + "번 · 전체: " + user.totalCount + "번"]
+      ];
+      fields.forEach(function ([className, text]) {
+        const detail = document.createElement("div");
+        detail.className = className;
+        detail.textContent = text;
+        card.append(detail);
+      });
+      list.append(card);
     });
     if (users.length === 0) {
-      html = '<div class="card">아직 가입한 사람이 없어요.</div>';
+      const card = document.createElement("div");
+      card.className = "card";
+      card.textContent = "아직 가입한 사람이 없어요.";
+      list.append(card);
     }
-    document.getElementById("list").innerHTML = html;
-  } catch (e) {
-    document.getElementById("total").textContent = "불러오기 실패. 다시 해주세요.";
+  } catch {
+    const error = "불러오기 실패. 다시 해주세요.";
+    if (main.style.display === "block") total.textContent = error;
+    else {
+      document.getElementById("msg").textContent = error;
+      login.hidden = false;
+    }
   }
 }
+
+loadUsers();
 </script>
 </body>
 </html>
