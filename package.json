@@ -1,0 +1,7 @@
+{
+  "name": "imaginiaai-site",
+  "private": true,
+  "dependencies": {
+    "@netlify/database": "2.0.4"
+  }
+}
