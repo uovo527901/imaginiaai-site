@@ -1,3 +1,5 @@
+const { createHash, timingSafeEqual } = require("node:crypto");
+
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY || "";
 const RUNPOD_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID || "";
 
@@ -20,7 +22,8 @@ function success(data) {
   return json(200, { ok: true, data: { ok: true, ...data } });
 }
 
-function failure(statusCode, error) {
+function failure(statusCode, error, cause) {
+  console.log("[actions]", statusCode, error, ...(cause instanceof Error ? [cause.constructor.name] : []));
   return json(statusCode, { ok: false, error });
 }
 
@@ -28,13 +31,28 @@ function adminCookie(event) {
   return event.headers?.cookie ?? event.headers?.Cookie ?? "";
 }
 
-async function handleAdminPassword(event, action, args) {
+async function handleAdminLogin(args) {
+  const password = process.env.ADMIN_PASSWORD;
+  if (!password) return failure(503, "ADMIN_PASSWORD가 Netlify에 없어요.");
+
+  const digest = (value) => createHash("sha256").update(value, "utf16le").digest();
+  if (typeof args.password !== "string" || !timingSafeEqual(digest(args.password), digest(password))) {
+    return failure(401, "비밀번호가 틀렸어요.");
+  }
+
+  const { getAdminCredentials, startSession } = await import("./gallery.mjs");
+  const { key, passwordHash } = await getAdminCredentials();
+  const cookie = startSession(key, passwordHash).headers.get("set-cookie");
+  return json(200, { ok: true }, { "Set-Cookie": cookie });
+}
+
+async function handleAdminPassword(event, args) {
   const { default: gallery } = await import("./gallery.mjs");
   const response = await gallery(new Request("http://localhost", {
     method: "POST",
     headers: { "Content-Type": "application/json", Cookie: adminCookie(event) },
     body: JSON.stringify({
-      action: action === "admin.login" ? "unlock" : "change-password",
+      action: "change-password",
       password: args.password,
       newPassword: args.newPassword,
     }),
@@ -96,8 +114,9 @@ exports.handler = async (event) => {
       return success({ token: "token-" + email });
     }
 
-    if (action === "admin.login" || action === "admin.set_password") {
-      return await handleAdminPassword(event, action, args);
+    if (action === "admin.login") return await handleAdminLogin(args);
+    if (action === "admin.set_password") {
+      return await handleAdminPassword(event, args);
     }
 
     // 가입한 사람 목록
@@ -120,7 +139,7 @@ exports.handler = async (event) => {
     }
 
     return failure(400, "지원하지 않는 요청이에요.");
-  } catch {
-    return failure(500, "서버에서 요청을 처리하지 못했어요.");
+  } catch (error) {
+    return failure(500, "서버에서 요청을 처리하지 못했어요.", error);
   }
 };

@@ -37,6 +37,24 @@ input { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; borde
 </div>
 
 <script>
+async function requestAdmin(action, args) {
+  let response;
+  try {
+    response = await fetch("/.netlify/functions/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, args })
+    });
+  } catch {
+    return { error: "서버에 연결이 안 돼요." };
+  }
+  const data = await response.json().catch(() => null);
+  if (!response.ok || data?.ok !== true) {
+    return { status: response.status, error: data?.error || "서버 응답을 확인할 수 없어요." };
+  }
+  return { status: response.status, data };
+}
+
 async function checkAdmin() {
   const input = document.getElementById("admin-pw");
   const message = document.getElementById("msg");
@@ -44,47 +62,42 @@ async function checkAdmin() {
     message.textContent = "비밀번호를 입력해 주세요.";
     return;
   }
-  try {
-    const response = await fetch("/.netlify/functions/actions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "admin.login", args: { password: input.value } })
-    });
-    if (!response.headers.get("content-type")?.includes("application/json")) throw new Error();
-    const data = await response.json();
-    if (response.status === 401 && data?.ok === false) {
-      message.textContent = "비밀번호가 틀렸어요.";
-      return;
-    }
-    if (!response.ok || data?.ok !== true) throw new Error();
-    input.value = "";
-    message.textContent = "";
-    await loadUsers();
-  } catch {
-    message.textContent = "서버에 연결이 안 돼요. Netlify Functions를 확인해 주세요.";
+  const { error } = await requestAdmin("admin.login", { password: input.value });
+  if (error) {
+    message.textContent = error;
+    return;
   }
+  input.value = "";
+  message.textContent = "";
+  await loadUsers();
 }
 
-async function loadUsers() {
+async function loadUsers({ silentUnauthorized = false } = {}) {
   const login = document.getElementById("login-box");
   const main = document.getElementById("main-box");
   const total = document.getElementById("total");
   const list = document.getElementById("list");
-  total.textContent = "불러오는 중...";
-  try {
-    const response = await fetch("/.netlify/functions/actions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "admin.list_users", args: {} })
-    });
-    if (response.status === 401) {
-      main.style.display = "none";
-      list.replaceChildren();
+  const showError = (error) => {
+    if (main.style.display === "block") total.textContent = error;
+    else {
+      document.getElementById("msg").textContent = error;
       login.hidden = false;
-      return;
     }
-    if (!response.ok) throw new Error("Could not load users");
-    const { data: { users } } = await response.json();
+  };
+  total.textContent = "불러오는 중...";
+  const { status, data, error } = await requestAdmin("admin.list_users", {});
+  if (status === 401) {
+    main.style.display = "none";
+    list.replaceChildren();
+    login.hidden = false;
+    if (silentUnauthorized) return;
+  }
+  if (error) {
+    showError(error);
+    return;
+  }
+  try {
+    const { data: { users } } = data;
     login.hidden = true;
     main.style.display = "block";
     total.textContent = "총 " + users.length + "명 가입했어요";
@@ -112,16 +125,11 @@ async function loadUsers() {
       list.append(card);
     }
   } catch {
-    const error = "불러오기 실패. 다시 해주세요.";
-    if (main.style.display === "block") total.textContent = error;
-    else {
-      document.getElementById("msg").textContent = error;
-      login.hidden = false;
-    }
+    showError("불러오기 실패. 다시 해주세요.");
   }
 }
 
-loadUsers();
+loadUsers({ silentUnauthorized: true });
 </script>
 </body>
 </html>
