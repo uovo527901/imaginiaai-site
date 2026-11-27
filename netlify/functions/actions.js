@@ -5,7 +5,7 @@
 // ============================================================
 
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY || "";
-const RUNPOD_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID || "dq80ledxpvlpo0";
+const RUNPOD_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID || "";
 const RUNPOD_BASE = "https://api.runpod.ai/v2/" + RUNPOD_ENDPOINT_ID;
 
 let USERS = {};
