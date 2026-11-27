@@ -4,7 +4,7 @@
 
 (function () {
 
-  var API = "/actions";
+  var API = "/.netlify/functions/actions";
 
   // ------------------------------------------------------------
   // 1. 지금 로그인했는지 확인하기
