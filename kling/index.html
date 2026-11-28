@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Create video and still images with Kling in ImaginiaAI Studio.">
+  <title>Kling Studio · ImaginiaAI</title>
+  <link rel="stylesheet" href="./studio.css">
+  <script type="module" src="./studio.mjs"></script>
+</head>
+<body>
+  <header class="bar">
+    <a href="/" class="brand"><span class="mark" aria-hidden="true"></span> ImaginiaAI</a>
+    <a href="/#mode-nav" class="back">Return to original studio <span aria-hidden="true">↗</span></a>
+  </header>
+  <main>
+    <div class="intro">
+      <p class="eyebrow">ImaginiaAI / Creation tools</p>
+      <h1>Kling Studio<span>.</span></h1>
+      <p>Make a film from a prompt or keyframes, edit a source clip, or create a high-resolution still.</p>
+      <p id="connection" class="connection" role="status">Checking studio connection…</p>
+      <a id="admin-link" href="/admin-users.html#login-box" hidden>Open admin sign-in ↗</a>
+    </div>
+    <form id="studio" class="workbench">
+      <fieldset class="models">
+        <legend>01 <span>Choose a model</span></legend>
+        <div id="models"></div>
+      </fieldset>
+      <fieldset id="inputs" class="controls" disabled>
+        <legend>02 <span>Direct the result</span></legend>
+        <h2 id="model-name"></h2>
+        <p id="description" class="description"></p>
+        <label for="prompt">Prompt</label>
+        <textarea id="prompt" rows="5" maxlength="2500" required aria-describedby="prompt-help"></textarea>
+        <p id="prompt-help" class="hint"></p>
+        <div class="settings">
+          <div><label for="resolution">Resolution</label><select id="resolution"></select></div>
+          <div id="ratio-field"><label for="ratio">Aspect ratio</label><select id="ratio"></select></div>
+          <div id="duration-field"><label for="duration">Duration (seconds)</label><input id="duration" type="number" min="3" value="5" required></div>
+        </div>
+        <div id="toggles" class="toggles" hidden>
+          <label id="hdr-field" hidden><input id="hdr" type="checkbox"> 10-bit HDR</label>
+          <label id="audio-field" hidden><input id="audio" type="checkbox" checked> Native audio</label>
+          <label id="multi-shot-field" hidden><input id="multi-shot" type="checkbox" checked> Multi-shot</label>
+        </div>
+        <details id="source" class="source">
+          <summary>Input media <small>Optional</small></summary>
+          <div class="media">
+            <div id="start-field"><label for="start">First frame <small>@first</small></label><input id="start" type="file" accept="image/jpeg,image/png"></div>
+            <div id="middle-field"><label for="middle">Middle frames <small>@middle1, @middle2…</small></label><input id="middle" type="file" accept="image/jpeg,image/png" multiple></div>
+            <div id="end-field"><label for="end">Last frame <small>@last</small></label><input id="end" type="file" accept="image/jpeg,image/png"></div>
+            <div id="references-field"><label for="references">Reference images <small>@image1, @image2…</small></label><input id="references" type="file" accept="image/jpeg,image/png" multiple></div>
+            <div id="elements-field"><label for="elements">Kling Element IDs <small>@element1, @element2…</small></label><input id="elements" type="text" maxlength="520" placeholder="Comma-separated IDs from Kling"></div>
+            <div id="video-field"><label for="video">Source video URL <small>@video</small></label><input id="video" type="url" maxlength="4096" placeholder="https://…/clip.mp4" aria-describedby="video-help"><p id="video-help" class="hint">Use a publicly accessible HTTPS MP4 or MOV, 3–20 seconds. By default, edits follow the source framing and duration.</p></div>
+            <p class="hint">JPEG or PNG, 2 MB combined. Use images at least 300 px on each side.</p>
+          </div>
+        </details>
+        <button id="submit" type="submit">Checking availability…</button>
+      </fieldset>
+    </form>
+    <section class="result" aria-labelledby="output-title">
+      <div class="eyebrow">03 / Output</div>
+      <h2 id="output-title">Result</h2>
+      <p id="status" role="status" aria-atomic="true">Your task status and output appear here.</p>
+      <div id="output"></div>
+      <button id="check" class="check" type="button" hidden>Check status again</button>
+    </section>
+  </main>
+  <footer>ImaginiaAI <span>·</span> Kling Studio</footer>
+</body>
+</html>

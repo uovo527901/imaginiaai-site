@@ -1,0 +1,241 @@
+import { maxImageBytes, maxReferences, models } from "./catalog.mjs";
+
+const endpoint = "/.netlify/functions/kling";
+const byId = id => document.getElementById(id);
+const inputs = byId("inputs");
+const submit = byId("submit");
+const check = byId("check");
+const output = byId("output");
+const status = byId("status");
+const resolution = byId("resolution");
+const ratio = byId("ratio");
+const duration = byId("duration");
+const prompt = byId("prompt");
+let model = models[0];
+let session;
+let pendingTask;
+
+function showStatus(message, error = false) {
+  status.textContent = message;
+  status.toggleAttribute("data-error", error);
+}
+
+function setField(field, visible) {
+  const wrapper = byId(`${field}-field`);
+  wrapper.hidden = !visible;
+  wrapper.querySelector("input, select").disabled = !visible;
+}
+
+function updateFields() {
+  const editsVideo = model.editing && byId("video").value.trim() !== "";
+  const hasFirstFrame = (model.frames || model.startFrame) && byId("start").files.length;
+  setField("ratio", !editsVideo && !hasFirstFrame);
+  setField("duration", model.kind === "video" && !editsVideo);
+  const hdrAvailable = model.hdr && resolution.value !== "720p";
+  setField("hdr", hdrAvailable);
+  byId("toggles").hidden = !hdrAvailable && !model.storyboard;
+}
+
+function selectModel(option) {
+  model = option;
+  byId("model-name").textContent = model.name;
+  byId("description").textContent = model.description;
+  byId("prompt-help").textContent = model.storyboard
+    ? 'For a storyboard, try “shot 1, 2, Wide establishing shot; shot 2, 3, Close-up of the subject;” Match the total to the duration.'
+    : "Describe the result you want. For references or edits, name the inputs using the @ labels below.";
+  prompt.placeholder = model.kind === "image" ? "A museum poster with the title ‘Night Garden’…" : "A slow tracking shot through a rain-soaked garden…";
+  resolution.replaceChildren(...model.resolutions.map(value => new Option(value.toUpperCase(), value)));
+  ratio.replaceChildren(...model.ratios.map(value => new Option(value === "auto" ? "Auto" : value, value)));
+  duration.max = model.maxDuration ?? 5;
+  if (Number(duration.value) > Number(duration.max)) duration.value = duration.max;
+  setField("start", model.frames || model.startFrame);
+  setField("middle", model.frames);
+  setField("end", model.frames);
+  setField("references", model.references);
+  setField("elements", model.elements);
+  setField("video", model.editing);
+  setField("multi-shot", model.storyboard);
+  setField("audio", model.storyboard);
+  updateFields();
+}
+
+for (const option of models) {
+  const label = document.createElement("label");
+  label.className = "model";
+  const radio = document.createElement("input");
+  radio.type = "radio";
+  radio.name = "model";
+  radio.value = option.id;
+  radio.checked = option === model;
+  radio.addEventListener("change", () => selectModel(option));
+  const text = document.createElement("span");
+  const title = document.createElement("strong");
+  const badge = document.createElement("small");
+  title.textContent = option.name;
+  badge.textContent = option.badge;
+  text.append(title, badge);
+  label.append(radio, text);
+  byId("models").append(label);
+}
+selectModel(model);
+resolution.addEventListener("change", updateFields);
+byId("video").addEventListener("input", updateFields);
+byId("start").addEventListener("change", updateFields);
+
+async function request(url, options) {
+  const response = await fetch(url, { cache: "no-store", ...options });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body) {
+    const error = new Error(body?.error || "The studio could not be reached. Try again later.");
+    error.status = response.status;
+    throw error;
+  }
+  return body;
+}
+
+async function connect() {
+  try {
+    session = await request(endpoint);
+    byId("connection").textContent = session.demo
+      ? "Demo mode · Preview settings only. No media is generated or sent to Kling."
+      : session.authorized ? "Live mode · Generation uses your fal.ai credits."
+        : "Live generation requires an ImaginiaAI admin session.";
+    byId("admin-link").hidden = session.authorized;
+    inputs.disabled = !session.authorized;
+    submit.textContent = session.demo ? "Preview request" : "Generate with Kling";
+  } catch {
+    byId("connection").textContent = "Studio connection unavailable. Refresh to retry.";
+    submit.textContent = "Studio unavailable";
+  }
+}
+connect();
+
+function files(id) {
+  const field = byId(id);
+  return field.disabled ? [] : Array.from(field.files);
+}
+
+function encode(file) {
+  if (!file) return undefined;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(",")[1]);
+    reader.onerror = () => reject(new Error("An image could not be read. Select it again."));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function readForm() {
+  const start = files("start");
+  const middle = files("middle");
+  const end = files("end");
+  const references = files("references");
+  const value = id => byId(id).disabled ? "" : byId(id).value.trim();
+  const checked = id => !byId(id).disabled && byId(id).checked;
+  const elementIds = value("elements").split(",").map(id => id.trim()).filter(Boolean);
+  const all = [...start, ...middle, ...end, ...references];
+  if (all.reduce((bytes, file) => bytes + file.size, 0) > maxImageBytes) throw new Error("Image inputs must total 2 MB or less.");
+  if ([middle, references, elementIds].some(group => group.length > maxReferences)) throw new Error(`Use up to ${maxReferences} middle frames, reference images, or Kling Elements per field.`);
+  if (!start.length && (middle.length || end.length)) throw new Error("Add a first frame before adding middle or last frames.");
+  const requestBody = {
+    live: !session.demo, model: model.id, prompt: prompt.value.trim(),
+    resolution: resolution.value, ratio: ratio.value, duration: Number(duration.value),
+    hdr: checked("hdr"), audio: checked("audio"), multiShot: checked("multi-shot"),
+    elementIds, baseVideo: value("video"),
+  };
+  const [startFrame, middleFrames, endFrame, referenceImages] = await Promise.all([
+    encode(start[0]), Promise.all(middle.map(encode)), encode(end[0]), Promise.all(references.map(encode)),
+  ]);
+  return { ...requestBody, startFrame, middleFrames, endFrame, references: referenceImages };
+}
+
+function showPreview(preview) {
+  const settings = preview.settings;
+  const details = [
+    settings.resolution.toUpperCase(), settings.aspect_ratio,
+    settings.duration && `${settings.duration} sec`, settings.dynamic_range && "HDR",
+    settings.multi_shot && "Multi-shot", settings.audio === "native" && "Native audio",
+    preview.inputs > 0 && `${preview.inputs} media ${preview.inputs === 1 ? "input" : "inputs"}`,
+  ].filter(Boolean).join(" · ");
+  const line = document.createElement("p");
+  line.textContent = `${preview.model} · ${details}`;
+  output.replaceChildren(line);
+  showStatus("Demo request validated. No image or video was generated.");
+}
+
+function showMedia(outputs) {
+  for (const item of outputs) {
+    const figure = document.createElement("figure");
+    const media = document.createElement(item.type === "video" ? "video" : "img");
+    media.src = item.url;
+    if (item.type === "video") {
+      media.controls = true;
+      media.playsInline = true;
+      media.preload = "metadata";
+    } else {
+      media.alt = "Kling-generated still";
+    }
+    const link = document.createElement("a");
+    link.href = item.url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = `Open ${item.type} ↗`;
+    figure.append(media, link);
+    output.append(figure);
+  }
+}
+
+async function poll(job, attempts) {
+  check.hidden = true;
+  try {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      if (attempt > 0 || attempts > 1) await new Promise(resolve => setTimeout(resolve, 5000));
+      const result = await request(`${endpoint}?${new URLSearchParams({ taskId: job })}`);
+      if (result.status === "succeeded") {
+        pendingTask = null;
+        showMedia(result.outputs);
+        showStatus(result.outputs.length ? "Generation complete. Open the result to save a copy." : "Kling completed the job but did not return a media preview.", !result.outputs.length);
+        return;
+      }
+      if (result.status === "failed") {
+        pendingTask = null;
+        showStatus("Kling could not generate this result. Review the prompt or inputs and try again.", true);
+        return;
+      }
+      showStatus(result.status === "submitted" ? "Queued with Kling…" : "Kling is generating your result…");
+    }
+    showStatus("Still waiting on Kling. You can check this task again without starting a new one.");
+  } catch (error) {
+    showStatus(error.message, true);
+  } finally {
+    check.hidden = !pendingTask;
+    submit.disabled = !!pendingTask;
+  }
+}
+
+byId("studio").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!session?.authorized || submit.disabled) return;
+  submit.disabled = true;
+  output.replaceChildren();
+  showStatus(session.demo ? "Validating demo settings…" : "Submitting your request to Kling…");
+  try {
+    const body = await readForm();
+    const result = await request(endpoint, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    if (result.demo) showPreview(result.preview);
+    else {
+      pendingTask = result.taskId;
+      showStatus("Queued with Kling. Keep this tab open to see the result.");
+      await poll(pendingTask, 36);
+    }
+  } catch (error) {
+    showStatus(error.message, true);
+    if (error.status === 401) connect();
+  } finally {
+    submit.disabled = !!pendingTask;
+  }
+});
+
+check.addEventListener("click", () => { if (pendingTask) poll(pendingTask, 1); });
