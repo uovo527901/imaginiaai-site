@@ -82,12 +82,18 @@ resolution.addEventListener("change", updateFields);
 byId("video").addEventListener("input", updateFields);
 byId("start").addEventListener("change", updateFields);
 
+function errorMessage(body, fallback) {
+  const message = body?.error || fallback;
+  return body?.falStatus ? `fal.ai HTTP ${body.falStatus}: ${message}` : message;
+}
+
 async function request(url, options) {
   const response = await fetch(url, { cache: "no-store", ...options });
   const body = await response.json().catch(() => null);
   if (!response.ok || !body) {
-    const error = new Error(body?.error || "The studio could not be reached. Try again later.");
+    const error = new Error(errorMessage(body, "The studio could not be reached. Try again later."));
     error.status = response.status;
+    error.falStatus = body?.falStatus;
     throw error;
   }
   return body;
@@ -199,7 +205,7 @@ async function poll(job, attempts) {
       }
       if (result.status === "failed") {
         pendingTask = null;
-        showStatus("Kling could not generate this result. Review the prompt or inputs and try again.", true);
+        showStatus(errorMessage(result, "Kling could not generate this result. Review the prompt or inputs and try again."), true);
         return;
       }
       showStatus(result.status === "submitted" ? "Queued with Kling…" : "Kling is generating your result…");
@@ -232,7 +238,7 @@ byId("studio").addEventListener("submit", async event => {
     }
   } catch (error) {
     showStatus(error.message, true);
-    if (error.status === 401) connect();
+    if (error.status === 401 && !error.falStatus) connect();
   } finally {
     submit.disabled = !!pendingTask;
   }
