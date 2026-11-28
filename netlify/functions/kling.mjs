@@ -2,7 +2,8 @@ import { maxImageBytes, maxReferences, models } from "../../kling/catalog.mjs";
 import { hasAdminSession } from "./gallery.mjs";
 
 const falQueue = "https://queue.fal.run";
-const queueApps = { v4: "kling/v4", v3: "fal-ai/kling-video" };
+const klingVideoApp = "fal-ai/kling-video";
+const queueApps = { v4: "kling/v4", v3: klingVideoApp, v4Video: klingVideoApp };
 const maxBodySize = 3 * 1024 * 1024;
 const validId = /^[a-z0-9_-]{1,128}$/i;
 
@@ -12,6 +13,8 @@ class RequestError extends Error {
     this.status = status;
   }
 }
+
+class FalRequestError extends RequestError {}
 
 function json(body, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -137,9 +140,9 @@ function falTask(task) {
   if (model.id === "kling-4.0") {
     const payload = { prompt: framedPrompt, duration, resolution, hdr: settings.dynamic_range === "hdr" };
     return startImage
-      ? { app: "v4", endpoint: "image-to-video", payload: { ...payload, start_image_url: startImage,
+      ? { app: "v4Video", endpoint: "v4/image-to-video", payload: { ...payload, start_image_url: startImage,
         ...(middleImages.length && { middle_image_urls: middleImages }), ...(endImage && { end_image_url: endImage }) } }
-      : { app: "v4", endpoint: "text-to-video", payload: { ...payload, aspect_ratio } };
+      : { app: "v4Video", endpoint: "v4/text-to-video", payload: { ...payload, aspect_ratio } };
   }
   if (model.editing) {
     return baseVideo
@@ -160,6 +163,15 @@ function falTask(task) {
       payload: { ...payload, aspect_ratio } };
 }
 
+function falErrorMessage(body, apiKey) {
+  const detail = Array.isArray(body?.detail)
+    ? body.detail.map(item => item?.msg ?? item?.message ?? item).filter(item => typeof item === "string").join("\n")
+    : body?.detail;
+  const message = [detail, body?.message, body?.error?.message, body?.error, body]
+    .find(value => typeof value === "string" && value.trim());
+  return message?.replaceAll(apiKey, "[redacted]");
+}
+
 async function falRequest(apiKey, path, payload) {
   const response = await fetch(`${falQueue}/${path}`, {
     method: payload ? "POST" : "GET",
@@ -168,14 +180,14 @@ async function falRequest(apiKey, path, payload) {
     redirect: "error",
     signal: AbortSignal.timeout(12_000),
   });
-  const body = await response.json().catch(() => null);
-  if ([401, 402, 403].includes(response.status)) {
-    throw new RequestError("fal.ai denied access. Check the account balance and model access.", 502);
+  if (!response.ok) {
+    let details = await response.text().catch(() => "");
+    try { details = JSON.parse(details); } catch {}
+    const message = falErrorMessage(details, apiKey) || response.statusText || "No error message returned.";
+    throw new FalRequestError(message, response.status);
   }
-  if (response.status === 429) throw new RequestError("fal.ai is at capacity or the account reached a limit. Try again shortly.", 429);
-  if (response.status === 404) throw new RequestError("fal.ai did not find that endpoint or task.", 404);
-  if ([400, 422].includes(response.status)) throw new RequestError("fal.ai rejected the Kling request. Check the prompt, settings, and input media.", 422);
-  if (!response.ok || !body) throw new RequestError("fal.ai could not complete this request. Try again later.", 502);
+  const body = await response.json().catch(() => null);
+  if (!body) throw new RequestError("fal.ai could not complete this request. Try again later.", 502);
   return body;
 }
 
@@ -189,13 +201,15 @@ async function falStatus(apiKey, taskId) {
   if (task.status === "IN_QUEUE") return { status: "submitted", outputs: [] };
   if (task.status === "IN_PROGRESS") return { status: "processing", outputs: [] };
   if (task.status !== "COMPLETED") throw new RequestError("fal.ai returned an unknown task status.", 502);
-  if (task.error || task.error_type) return { status: "failed", outputs: [] };
+  if (task.error || task.error_type) return { status: "failed", outputs: [], error: falErrorMessage(task, apiKey) };
 
   let result;
   try {
     result = await falRequest(apiKey, path);
   } catch (error) {
-    if (error instanceof RequestError && error.status === 422) return { status: "failed", outputs: [] };
+    if (error instanceof FalRequestError && [400, 422].includes(error.status)) {
+      return { status: "failed", outputs: [], error: error.message, falStatus: error.status };
+    }
     throw error;
   }
   const outputs = [];
@@ -240,6 +254,7 @@ export default async function kling(request) {
     if (typeof data.request_id !== "string" || !validId.test(data.request_id)) throw new RequestError("fal.ai did not return a task ID.", 502);
     return json({ taskId: `${app}:${data.request_id}` }, 202);
   } catch (error) {
+    if (error instanceof FalRequestError) return json({ error: error.message, falStatus: error.status }, error.status);
     if (error instanceof RequestError) return json({ error: error.message }, error.status);
     return json({ error: "fal.ai could not be reached. Try again later." }, 502);
   }
