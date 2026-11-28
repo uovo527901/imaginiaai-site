@@ -1,4 +1,5 @@
 import { maxImageBytes, maxReferences, models } from "./catalog.mjs";
+import { translatePrompt } from "./translation.mjs";
 
 const endpoint = "/.netlify/functions/kling";
 const byId = id => document.getElementById(id);
@@ -11,14 +12,49 @@ const resolution = byId("resolution");
 const ratio = byId("ratio");
 const duration = byId("duration");
 const prompt = byId("prompt");
+const translate = byId("translate");
+const translationStatus = byId("translation-status");
 let model = models[0];
 let session;
 let pendingTask;
+let lastTranslation;
 
 function showStatus(message, error = false) {
   status.textContent = message;
   status.toggleAttribute("data-error", error);
 }
+
+prompt.addEventListener("input", () => {
+  if (!translate.disabled) translationStatus.textContent = "";
+});
+
+translate.addEventListener("click", async () => {
+  const original = prompt.value;
+  if (!original.trim()) {
+    translationStatus.textContent = "번역 실패: 먼저 Prompt에 내용을 입력해 주세요.";
+    return;
+  }
+  if (original === lastTranslation) {
+    translationStatus.textContent = "이미 영어로 번역된 Prompt입니다.";
+    return;
+  }
+
+  translate.disabled = true;
+  translationStatus.textContent = "영어로 번역 중…";
+  try {
+    const translated = await translatePrompt(original);
+    if (prompt.value !== original) throw new Error("번역 중 Prompt가 바뀌었습니다. 다시 눌러 주세요.");
+    if (translated.length > prompt.maxLength) {
+      throw new Error(`영어 번역이 ${prompt.maxLength}자를 넘었습니다. 원문을 줄인 뒤 다시 번역해 주세요.`);
+    }
+    prompt.value = lastTranslation = translated;
+    translationStatus.textContent = "영어로 번역해 Prompt에 적용했습니다.";
+  } catch (error) {
+    translationStatus.textContent = `번역 실패: ${error.message}`;
+  } finally {
+    translate.disabled = false;
+  }
+});
 
 function setField(field, visible) {
   const wrapper = byId(`${field}-field`);

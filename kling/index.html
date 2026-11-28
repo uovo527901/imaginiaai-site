@@ -31,8 +31,10 @@
         <h2 id="model-name"></h2>
         <p id="description" class="description"></p>
         <label for="prompt">Prompt</label>
-        <textarea id="prompt" rows="5" maxlength="2500" required aria-describedby="prompt-help"></textarea>
+        <textarea id="prompt" rows="5" maxlength="2500" required aria-describedby="prompt-help translation-status"></textarea>
         <p id="prompt-help" class="hint"></p>
+        <button id="translate" type="button" lang="ko">영어로 번역</button>
+        <p id="translation-status" class="hint" role="status" aria-atomic="true" lang="ko"></p>
         <div class="settings">
           <div><label for="resolution">Resolution</label><select id="resolution"></select></div>
           <div id="ratio-field"><label for="ratio">Aspect ratio</label><select id="ratio"></select></div>
