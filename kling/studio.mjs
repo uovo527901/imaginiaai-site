@@ -11,8 +11,6 @@ const resolution = byId("resolution");
 const ratio = byId("ratio");
 const duration = byId("duration");
 const prompt = byId("prompt");
-const translatePrompt = byId("translate-prompt");
-const translationStatus = byId("translation-status");
 let model = models[0];
 let session;
 let pendingTask;
@@ -100,65 +98,6 @@ async function request(url, options) {
   }
   return body;
 }
-
-async function translateOnDevice(text, onDownload) {
-  const api = globalThis.Translator;
-  if (!api) return null;
-  const languages = { sourceLanguage: "ko", targetLanguage: "en" };
-  const signal = AbortSignal.timeout(90000);
-  let translator;
-  try {
-    if (await api.availability(languages) === "unavailable") return null;
-    translator = await api.create({
-      ...languages,
-      signal,
-      monitor(monitor) { monitor.addEventListener("downloadprogress", onDownload); },
-    });
-    return await translator.translate(text, { signal });
-  } catch {
-    return null;
-  } finally {
-    translator?.destroy();
-  }
-}
-
-prompt.addEventListener("input", () => { translationStatus.textContent = ""; });
-translatePrompt.addEventListener("click", async () => {
-  const original = prompt.value;
-  const text = original.trim();
-  if (!text || translatePrompt.disabled) return;
-
-  translatePrompt.disabled = true;
-  translationStatus.textContent = "번역 중…";
-  try {
-    let translation = await translateOnDevice(text, event => {
-      if (prompt.value === original) {
-        translationStatus.textContent = event.loaded < 1
-          ? `번역 언어 팩 다운로드 중… ${Math.round(event.loaded * 100)}%`
-          : "번역 중…";
-      }
-    });
-    if (prompt.value !== original) return;
-    if (!translation?.trim()) {
-      translationStatus.textContent = "번역 중…";
-      ({ translation } = await request("/.netlify/functions/kling-translate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: text }),
-        signal: AbortSignal.timeout(12000),
-      }));
-    }
-    if (typeof translation !== "string" || !translation.trim() || translation.length > prompt.maxLength) throw new Error();
-    if (prompt.value === original) {
-      prompt.value = translation;
-      translationStatus.textContent = "영어로 번역했어요.";
-    }
-  } catch {
-    if (prompt.value === original) translationStatus.textContent = "번역이 안 됐어요. 영어로 직접 써주세요.";
-  } finally {
-    translatePrompt.disabled = false;
-  }
-});
 
 async function connect() {
   try {
