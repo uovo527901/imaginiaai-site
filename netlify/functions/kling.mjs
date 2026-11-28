@@ -2,8 +2,8 @@ import { maxImageBytes, maxReferences, models } from "../../kling/catalog.mjs";
 import { hasAdminSession } from "./gallery.mjs";
 
 const falQueue = "https://queue.fal.run";
-const klingVideoApp = "fal-ai/kling-video";
-const queueApps = { v4: "kling/v4", v3: klingVideoApp, v4Video: klingVideoApp };
+const queueApps = { v4: "kling/v4", v3: "fal-ai/kling-video" };
+const missingKeyMessage = "FAL_KEY is empty.";
 const maxBodySize = 3 * 1024 * 1024;
 const validId = /^[a-z0-9_-]{1,128}$/i;
 
@@ -140,9 +140,9 @@ function falTask(task) {
   if (model.id === "kling-4.0") {
     const payload = { prompt: framedPrompt, duration, resolution, hdr: settings.dynamic_range === "hdr" };
     return startImage
-      ? { app: "v4Video", endpoint: "v4/image-to-video", payload: { ...payload, start_image_url: startImage,
+      ? { app: "v4", endpoint: "image-to-video", payload: { ...payload, start_image_url: startImage,
         ...(middleImages.length && { middle_image_urls: middleImages }), ...(endImage && { end_image_url: endImage }) } }
-      : { app: "v4Video", endpoint: "v4/text-to-video", payload: { ...payload, aspect_ratio } };
+      : { app: "v4", endpoint: "text-to-video", payload: { ...payload, aspect_ratio } };
   }
   if (model.editing) {
     return baseVideo
@@ -227,13 +227,13 @@ export default async function kling(request) {
   const demo = !apiKey;
   const authorized = demo || hasAdminSession(request.headers.get("cookie"));
   const taskId = new URL(request.url).searchParams.get("taskId");
-  if (request.method === "GET" && taskId === null) return json({ demo, authorized });
+  if (request.method === "GET" && taskId === null) return json({ demo, authorized, ...(demo && { demoReason: missingKeyMessage }) });
   if (request.method !== "GET" && request.method !== "POST") return json({ error: "Method not allowed." }, 405);
   if (!authorized) return json({ error: "Unlock Admin on the homepage to use live Kling generation." }, 401);
 
   try {
     if (request.method === "GET") {
-      if (demo) throw new RequestError("Live Kling generation is not configured.", 409);
+      if (demo) throw new RequestError(missingKeyMessage, 409);
       return json(await falStatus(apiKey, taskId));
     }
 
@@ -245,7 +245,7 @@ export default async function kling(request) {
     if (Buffer.byteLength(body) > maxBodySize) throw new RequestError("Image inputs must total 2 MB or less.", 413);
     let input;
     try { input = JSON.parse(body); } catch { throw new RequestError("Send a valid JSON request."); }
-    if (demo && input?.live === true) throw new RequestError("Live Kling generation is not configured.", 409);
+    if (demo && input?.live === true) throw new RequestError(missingKeyMessage, 409);
     if (!demo && input?.live !== true) throw new RequestError("Live generation is now available. Refresh to continue.", 409);
     const task = buildTask(input);
     if (demo) return json({ demo: true, preview: task.preview });

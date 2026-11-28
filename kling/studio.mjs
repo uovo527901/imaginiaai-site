@@ -103,7 +103,7 @@ async function connect() {
   try {
     session = await request(endpoint);
     byId("connection").textContent = session.demo
-      ? "Demo mode · Preview settings only. No media is generated or sent to Kling."
+      ? `Demo mode · ${session.demoReason} Preview settings only.`
       : session.authorized ? "Live mode · Generation uses your fal.ai credits."
         : "Live generation requires an ImaginiaAI admin session.";
     byId("admin-link").hidden = session.authorized;
